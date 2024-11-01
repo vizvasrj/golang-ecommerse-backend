@@ -1,24 +1,16 @@
 package wishlist
 
 import (
-	"src/pkg/module/product"
-	"src/pkg/module/user"
 	"time"
+
+	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
-// Wishlist model
 type Wishlist struct {
-	ID        uint            `gorm:"primaryKey" json:"id"`
-	ProductID uint            `gorm:"column:product;default:null" json:"product"`
-	Product   product.Product `gorm:"foreignKey:ProductID" json:"-"`
-	UserID    uint            `gorm:"column:user;default:null" json:"user"`
-	User      user.User       `gorm:"foreignKey:UserID" json:"-"`
-	IsLiked   bool            `gorm:"column:isLiked;default:false" json:"isLiked"`
-	Updated   time.Time       `gorm:"column:updated;default:CURRENT_TIMESTAMP" json:"updated"`
-	Created   time.Time       `gorm:"column:created;default:CURRENT_TIMESTAMP" json:"created"`
-}
-
-// TableName specifies the table name for the Wishlist model
-func (Wishlist) TableName() string {
-	return "wishlist"
+	ID      primitive.ObjectID `bson:"_id,omitempty" json:"id,omitempty"`
+	Product primitive.ObjectID `bson:"product,omitempty" json:"product,omitempty"`
+	User    primitive.ObjectID `bson:"user,omitempty" json:"user,omitempty"`
+	IsLiked bool               `bson:"isLiked,omitempty" json:"isLiked,omitempty"`
+	Updated time.Time          `bson:"updated,omitempty" json:"updated,omitempty"`
+	Created time.Time          `bson:"created,omitempty" json:"created,omitempty"`
 }

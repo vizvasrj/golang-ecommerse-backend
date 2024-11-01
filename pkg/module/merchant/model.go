@@ -1,6 +1,10 @@
 package merchant
 
-import "time"
+import (
+	"time"
+
+	"go.mongodb.org/mongo-driver/bson/primitive"
+)
 
 // MerchantStatus type
 type MerchantStatus string
@@ -12,17 +16,25 @@ const (
 	Approved        MerchantStatus = "Approved"
 )
 
-// Merchant model
+// Merchant struct
 type Merchant struct {
-	ID          uint           `json:"id"`
-	Name        string         `json:"name"`
-	Email       string         `json:"email"`
-	PhoneNumber string         `json:"phoneNumber"`
-	BrandName   string         `json:"brandName"`
-	Business    string         `json:"business"`
-	IsActive    bool           `json:"isActive"`
-	BrandID     uint           `json:"brandId"`
-	Status      MerchantStatus `json:"status"`
-	Updated     time.Time      `json:"updated"`
-	Created     time.Time      `json:"created"`
+	ID          primitive.ObjectID `bson:"_id,omitempty" json:"id"`
+	Name        string             `bson:"name" json:"name"`
+	Email       string             `bson:"email" json:"email"`
+	PhoneNumber string             `bson:"phoneNumber" json:"phoneNumber"`
+	BrandName   string             `bson:"brandName" json:"brandName"`
+	Business    string             `bson:"business" json:"business"`
+	IsActive    bool               `bson:"isActive" json:"isActive"`
+	Brand       string             `bson:"brand" json:"brand"`
+	Status      MerchantStatus     `bson:"status" json:"status"`
+	Updated     time.Time          `bson:"updated" json:"updated"`
+	Created     time.Time          `bson:"created" json:"created"`
+}
+
+type MerchantAdd struct {
+	Name        string `form:"name" binding:"required"`
+	Email       string `form:"email" binding:"required"`
+	PhoneNumber string `form:"phoneNumber" binding:"required"`
+	BrandName   string `form:"brandName" binding:"required"`
+	Business    string `form:"business" binding:"required"`
 }

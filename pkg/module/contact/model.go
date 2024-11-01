@@ -1,13 +1,17 @@
-package contact
+package model
 
-import "time"
+import (
+	"time"
 
-// Contact model
+	"go.mongodb.org/mongo-driver/bson/primitive"
+)
+
+// Contact represents the contact model
 type Contact struct {
-	ID      uint      `json:"id"`
-	Name    string    `json:"name"`
-	Email   string    `json:"email"`
-	Message string    `json:"message"`
-	Updated time.Time `json:"updated"`
-	Created time.Time `json:"created"`
+	ID      primitive.ObjectID `bson:"_id,omitempty" json:"id,omitempty"`
+	Name    string             `bson:"name,omitempty" json:"name,omitempty"`
+	Email   string             `bson:"email,omitempty" json:"email,omitempty"`
+	Message string             `bson:"message,omitempty" json:"message,omitempty"`
+	Updated time.Time          `bson:"updated,omitempty" json:"updated,omitempty"`
+	Created time.Time          `bson:"created,omitempty" json:"created,omitempty"`
 }

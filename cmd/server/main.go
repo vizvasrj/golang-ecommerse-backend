@@ -1,60 +1,58 @@
 package main
 
 import (
-	"log"
+	"src/pkg/conf"
+	"src/pkg/db"
+	"src/pkg/env"
 	"src/pkg/module/address"
-	"src/pkg/module/brand"
-	"src/pkg/module/cart"
-	"src/pkg/module/category"
-	"src/pkg/module/contact"
-	"src/pkg/module/merchant"
-	"src/pkg/module/order"
-	"src/pkg/module/product"
-	"src/pkg/module/review"
-	"src/pkg/module/user"
-	"src/pkg/module/wishlist"
+	"src/pkg/module/auth"
 
-	"gorm.io/driver/postgres"
-	"gorm.io/gorm"
+	"github.com/gin-gonic/gin"
 )
 
 func main() {
-	// Initialize the database connection
-	dsn := "host=localhost user=postgres password=postgres dbname=ecomm port=5432 sslmode=disable TimeZone=Asia/Kolkata"
-
-	// Initialize the database connection
-	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	envs, err := env.GetEnv()
 	if err != nil {
-		log.Fatal("failed to connect database")
+		panic(err)
 	}
 
-	// err = db.Migrator().DropTable(&cart.Cart{})
-	// if err != nil {
-	// 	log.Fatalf("failed to drop Brand table: %v", err)
-	// }
-	// err = db.Migrator().DropTable(&cart.CartItem{})
-	// if err != nil {
-	// 	log.Fatalf("failed to drop Brand table: %v", err)
-	// }
-
-	// Migrate the schema
-	err = db.AutoMigrate(
-		&address.Address{},
-		&brand.Brand{},
-		&cart.Cart{},
-		&cart.CartItem{},
-		&category.Category{},
-		&contact.Contact{},
-		&merchant.Merchant{},
-		&order.Order{},
-		&product.Product{},
-		&review.Review{},
-		&user.User{},
-		&wishlist.Wishlist{},
-	)
+	clinet, err := db.InitializeMongoDB(envs.DBUri)
 	if err != nil {
-		log.Fatalf("failed to migrate database: %v", err)
+		panic(err)
 	}
 
-	log.Println("Database migration completed successfully")
+	AddressCollection := db.GetCollection(clinet, envs.DBName, "addresses")
+	CartCollection := db.GetCollection(clinet, envs.DBName, "carts")
+	// ContactCollection := db.GetCollection(clinet, envs.DBName, "contact")
+	WishlistCollection := db.GetCollection(clinet, envs.DBName, "wishlists")
+	BrandCollection := db.GetCollection(clinet, envs.DBName, "brands")
+	ProductCollection := db.GetCollection(clinet, envs.DBName, "products")
+	OrderCollection := db.GetCollection(clinet, envs.DBName, "orders")
+	ReviewCollection := db.GetCollection(clinet, envs.DBName, "reviews")
+	UserCollection := db.GetCollection(clinet, envs.DBName, "users")
+	MerchantCollection := db.GetCollection(clinet, envs.DBName, "merchants")
+	CategoryCollection := db.GetCollection(clinet, envs.DBName, "categories")
+	config := &conf.Config{
+		// ContactCollection:  ContactCollection,
+		AddressCollection:  AddressCollection,
+		CartCollection:     CartCollection,
+		WishlistCollection: WishlistCollection,
+		BrandCollection:    BrandCollection,
+		ProductCollection:  ProductCollection,
+		OrderCollection:    OrderCollection,
+		ReviewCollection:   ReviewCollection,
+		UserCollection:     UserCollection,
+		MerchantCollection: MerchantCollection,
+		CategoryCollection: CategoryCollection,
+
+		Env:           envs,
+		TokenLifetime: 24,
+	}
+
+	// Start the server
+	r := gin.Default()
+	auth.SetupRouter("/auth", r, config)
+	address.SetupRouter("/address", r, config)
+	r.Run(":3000")
+
 }

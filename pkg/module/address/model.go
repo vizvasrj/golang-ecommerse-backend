@@ -1,21 +1,27 @@
 package address
 
 import (
-	"src/pkg/module/user"
 	"time"
+
+	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
-// Address model
 type Address struct {
-	ID        uint      `json:"id"`
-	UserID    uint      `json:"userId"`
-	User      user.User `json:"user"`
-	Address   string    `json:"address"`
-	City      string    `json:"city"`
-	State     string    `json:"state"`
-	Country   string    `json:"country"`
-	ZipCode   string    `json:"zipCode"`
-	IsDefault bool      `json:"isDefault"`
-	Updated   time.Time `json:"updated"`
-	Created   time.Time `json:"created"`
+	ID        primitive.ObjectID `bson:"_id,omitempty" json:"id,omitempty"`
+	User      primitive.ObjectID `bson:"user,omitempty" json:"user,omitempty"`
+	Address   string             `bson:"address,omitempty" json:"address,omitempty"`
+	City      string             `bson:"city,omitempty" json:"city,omitempty"`
+	State     string             `bson:"state,omitempty" json:"state,omitempty"`
+	Country   string             `bson:"country,omitempty" json:"country,omitempty"`
+	ZipCode   string             `bson:"zipCode,omitempty" json:"zipCode,omitempty"`
+	IsDefault bool               `bson:"isDefault,omitempty" json:"isDefault,omitempty"`
+	Updated   time.Time          `bson:"updated,omitempty" json:"updated,omitempty"`
+	Created   time.Time          `bson:"created,omitempty" json:"created,omitempty"`
+}
+
+type AddressUpdate struct {
+	Street  string `json:"street"`
+	City    string `json:"city"`
+	State   string `json:"state"`
+	ZipCode string `json:"zip_code"`
 }

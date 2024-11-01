@@ -2,29 +2,29 @@ package order
 
 import (
 	"time"
+
+	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
-// Address model
 type Address struct {
-	ID        uint      `json:"id"`
-	UserID    uint      `json:"user"`
-	Address   string    `json:"address"`
-	City      string    `json:"city"`
-	State     string    `json:"state"`
-	Country   string    `json:"country"`
-	ZipCode   string    `json:"zipCode"`
-	IsDefault bool      `json:"isDefault"`
-	Updated   time.Time `json:"updated"`
-	Created   time.Time `json:"created"`
+	ID        primitive.ObjectID `bson:"_id,omitempty" json:"id,omitempty"`
+	User      primitive.ObjectID `bson:"user,omitempty" json:"user,omitempty"`
+	Address   string             `bson:"address,omitempty" json:"address,omitempty"`
+	City      string             `bson:"city,omitempty" json:"city,omitempty"`
+	State     string             `bson:"state,omitempty" json:"state,omitempty"`
+	Country   string             `bson:"country,omitempty" json:"country,omitempty"`
+	ZipCode   string             `bson:"zipCode,omitempty" json:"zipCode,omitempty"`
+	IsDefault bool               `bson:"isDefault,omitempty" json:"isDefault,omitempty"`
+	Updated   time.Time          `bson:"updated,omitempty" json:"updated,omitempty"`
+	Created   time.Time          `bson:"created,omitempty" json:"created,omitempty"`
 }
 
-// Order model
 type Order struct {
-	ID      uint      `json:"id"`
-	CartID  uint      `json:"cart"`
-	UserID  uint      `json:"user"`
-	Total   float64   `json:"total"`
-	Updated time.Time `json:"updated"`
-	Created time.Time `json:"created"`
-	Address Address   `json:"address"`
+	ID      primitive.ObjectID `bson:"_id,omitempty" json:"id,omitempty"`
+	Cart    primitive.ObjectID `bson:"cart,omitempty" json:"cart,omitempty"`
+	User    primitive.ObjectID `bson:"user,omitempty" json:"user,omitempty"`
+	Total   float64            `bson:"total,omitempty" json:"total,omitempty"`
+	Updated time.Time          `bson:"updated,omitempty" json:"updated,omitempty"`
+	Created time.Time          `bson:"created,omitempty" json:"created,omitempty"`
+	Address Address            `bson:"address,omitempty" json:"address,omitempty"`
 }

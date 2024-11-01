@@ -1,10 +1,9 @@
 package review
 
 import (
-	"database/sql/driver"
 	"time"
 
-	_ "gorm.io/gorm"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 // ReviewStatus type
@@ -16,32 +15,15 @@ const (
 	WaitingApproval ReviewStatus = "Waiting Approval"
 )
 
-// Scan implements the Scanner interface for ReviewStatus
-func (rs *ReviewStatus) Scan(value interface{}) error {
-	*rs = ReviewStatus(value.([]byte))
-	return nil
-}
-
-// Value implements the Valuer interface for ReviewStatus
-func (rs ReviewStatus) Value() (driver.Value, error) {
-	return string(rs), nil
-}
-
-// Review model
 type Review struct {
-	ID            uint         `gorm:"primaryKey;autoIncrement" json:"id"`
-	ProductID     uint         `gorm:"column:product_id;default:null" json:"product"`
-	UserID        uint         `gorm:"column:user_id;default:null" json:"user"`
-	Title         string       `gorm:"column:title;type:varchar(255)" json:"title"`
-	Rating        int          `gorm:"column:rating;default:0" json:"rating"`
-	Review        string       `gorm:"column:review;type:text" json:"review"`
-	IsRecommended bool         `gorm:"column:is_recommended;default:true" json:"isRecommended"`
-	Status        ReviewStatus `gorm:"column:status;type:varchar(255);default:'Waiting Approval'" json:"status"`
-	Updated       time.Time    `gorm:"column:updated" json:"updated"`
-	Created       time.Time    `gorm:"column:created;default:CURRENT_TIMESTAMP" json:"created"`
-}
-
-// TableName specifies the table name for the Review model
-func (Review) TableName() string {
-	return "reviews"
+	ID            primitive.ObjectID `bson:"_id,omitempty" json:"id,omitempty"`
+	Product       primitive.ObjectID `bson:"product,omitempty" json:"product,omitempty"`
+	User          primitive.ObjectID `bson:"user,omitempty" json:"user,omitempty"`
+	Title         string             `bson:"title,omitempty" json:"title,omitempty"`
+	Rating        float64            `bson:"rating,omitempty" json:"rating,omitempty"`
+	Review        string             `bson:"review,omitempty" json:"review,omitempty"`
+	IsRecommended bool               `bson:"isRecommended,omitempty" json:"isRecommended,omitempty"`
+	Status        ReviewStatus       `bson:"status,omitempty" json:"status,omitempty"`
+	Updated       time.Time          `bson:"updated,omitempty" json:"updated,omitempty"`
+	Created       time.Time          `bson:"created,omitempty" json:"created,omitempty"`
 }

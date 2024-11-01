@@ -1,63 +1,36 @@
 package product
 
 import (
-	"crypto/rand"
-	"encoding/hex"
-	"fmt"
-	"strings"
 	"time"
 
-	"gorm.io/gorm"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
-// Product model
 type Product struct {
-	ID          uint      `gorm:"primaryKey;autoIncrement" json:"id"`
-	Sku         string    `gorm:"column:sku;type:varchar(255)" json:"sku"`
-	Name        string    `gorm:"column:name;type:varchar(255);not null" json:"name"`
-	Slug        string    `gorm:"column:slug;type:varchar(255);unique;not null" json:"slug"`
-	ImageUrl    string    `gorm:"column:image_url;type:varchar(255)" json:"imageUrl"`
-	ImageKey    string    `gorm:"column:image_key;type:varchar(255)" json:"imageKey"`
-	Description string    `gorm:"column:description;type:text" json:"description"`
-	Quantity    int       `gorm:"column:quantity;not null" json:"quantity"`
-	Price       float64   `gorm:"column:price;not null" json:"price"`
-	Taxable     bool      `gorm:"column:taxable;default:false" json:"taxable"`
-	IsActive    bool      `gorm:"column:is_active;default:true" json:"isActive"`
-	BrandID     uint      `gorm:"column:brand_id;default:null" json:"brand"`
-	Updated     time.Time `gorm:"column:updated" json:"updated"`
-	Created     time.Time `gorm:"column:created;default:CURRENT_TIMESTAMP" json:"created"`
-	MerchantID  uint      `gorm:"column:merchant_id;default:null" json:"merchant"`
+	ID          primitive.ObjectID `bson:"_id,omitempty" json:"id,omitempty"`
+	SKU         string             `bson:"sku,omitempty" json:"sku,omitempty"`
+	Name        string             `bson:"name,omitempty" json:"name,omitempty"`
+	Slug        string             `bson:"slug,omitempty" json:"slug,omitempty"`
+	ImageURL    string             `bson:"imageUrl,omitempty" json:"imageUrl,omitempty"`
+	ImageKey    string             `bson:"imageKey,omitempty" json:"imageKey,omitempty"`
+	Description string             `bson:"description,omitempty" json:"description,omitempty"`
+	Quantity    int                `bson:"quantity,omitempty" json:"quantity,omitempty"`
+	Price       float64            `bson:"price,omitempty" json:"price,omitempty"`
+	Taxable     bool               `bson:"taxable,omitempty" json:"taxable,omitempty"`
+	IsActive    bool               `bson:"isActive,omitempty" json:"isActive,omitempty"`
+	Brand       primitive.ObjectID `bson:"brand,omitempty" json:"brand,omitempty"`
+	Updated     time.Time          `bson:"updated,omitempty" json:"updated,omitempty"`
+	Created     time.Time          `bson:"created,omitempty" json:"created,omitempty"`
+	Merchant    primitive.ObjectID `bson:"merchant,omitempty" json:"merchant,omitempty"`
 }
 
-// TableName specifies the table name for the Product model
-func (Product) TableName() string {
-	return "products"
-}
-
-// CreateProduct creates a new product record in the database
-func CreateProduct(db *gorm.DB, product *Product) error {
-	// Generate a slug from the product name
-	slug := strings.ToLower(strings.ReplaceAll(product.Name, " ", "-"))
-
-	// Generate a random 7-character hexadecimal string
-	randomHex, err := GenerateRandomHex(4) // 4 bytes = 8 hex characters
-	if err != nil {
-		return err
-	}
-
-	// Append the random hex to the slug
-	product.Slug = fmt.Sprintf("%s-%s", slug, randomHex[:7])
-
-	// Create the product in the database
-	return db.Create(product).Error
-}
-
-// * move to misc.go
-// GenerateRandomHex generates a random 7-character hexadecimal string
-func GenerateRandomHex(n int) (string, error) {
-	bytes := make([]byte, n)
-	if _, err := rand.Read(bytes); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(bytes), nil
+type AddProductInput struct {
+	SKU         string  `form:"sku" binding:"required"`
+	Name        string  `form:"name" binding:"required"`
+	Description string  `form:"description" binding:"required"`
+	Quantity    int     `form:"quantity" binding:"required"`
+	Price       float64 `form:"price" binding:"required"`
+	Taxable     bool    `form:"taxable"`
+	IsActive    bool    `form:"isActive"`
+	Brand       string  `form:"brand"`
 }
