@@ -2,12 +2,13 @@ package middleware
 
 import (
 	"net/http"
-	"src/pkg/module/user"
+	"src/common"
+	"src/l"
 
 	"github.com/gin-gonic/gin"
 )
 
-func RoleCheck(allowedRoles ...user.UserRole) gin.HandlerFunc {
+func RoleCheck(allowedRoles ...common.UserRole) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		role, exists := c.Get("role")
 		if !exists {
@@ -15,13 +16,13 @@ func RoleCheck(allowedRoles ...user.UserRole) gin.HandlerFunc {
 			c.Abort()
 			return
 		}
-
-		userRole, ok := role.(user.UserRole)
-		if !ok {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid role type"})
-			c.Abort()
-			return
-		}
+		l.DebugF("Role check: %#v", common.GetUserRole(role))
+		userRole := common.GetUserRole(role)
+		// if !ok {
+		// 	c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid role type"})
+		// 	c.Abort()
+		// 	return
+		// }
 
 		for _, allowedRole := range allowedRoles {
 			if userRole == allowedRole {

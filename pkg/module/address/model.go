@@ -7,7 +7,7 @@ import (
 )
 
 type Address struct {
-	ID        primitive.ObjectID `bson:"_id,omitempty" json:"id,omitempty"`
+	ID        primitive.ObjectID `bson:"_id,omitempty" json:"_id,omitempty"`
 	User      primitive.ObjectID `bson:"user,omitempty" json:"user,omitempty"`
 	Address   string             `bson:"address,omitempty" json:"address,omitempty"`
 	City      string             `bson:"city,omitempty" json:"city,omitempty"`
@@ -24,4 +24,12 @@ type AddressUpdate struct {
 	City    string `json:"city"`
 	State   string `json:"state"`
 	ZipCode string `json:"zip_code"`
+}
+type AddressAdd struct {
+	Address   string `json:"address" bson:"address" binding:"required"`
+	City      string `json:"city" bson:"city" binding:"required"`
+	State     string `json:"state" bson:"state" binding:"required"`
+	Country   string `json:"country" bson:"country" binding:"required"`
+	ZipCode   string `json:"zipCode" bson:"zipCode" binding:"required"`
+	IsDefault bool   `json:"isDefault" bson:"isDefault"`
 }

@@ -4,8 +4,9 @@ import (
 	"math"
 	"net/http"
 	"regexp"
+	"src/common"
+	"src/l"
 	"src/pkg/conf"
-	"src/pkg/module/merchant"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
@@ -17,8 +18,8 @@ import (
 func SearchUsers(app *conf.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// Check if the user is authenticated and has the Admin role
-		userRole := c.MustGet("role").(UserRole)
-		if userRole != RoleAdmin {
+		userRole := c.MustGet("role").(common.UserRole)
+		if userRole != common.RoleAdmin {
 			c.JSON(http.StatusForbidden, gin.H{"error": "Forbidden"})
 			return
 		}
@@ -26,6 +27,7 @@ func SearchUsers(app *conf.Config) gin.HandlerFunc {
 		search := c.Query("search")
 		regex, err := regexp.Compile("(?i)" + search)
 		if err != nil {
+			l.DebugF("Error: %v", err)
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid search query"})
 			return
 		}
@@ -40,6 +42,7 @@ func SearchUsers(app *conf.Config) gin.HandlerFunc {
 
 		cursor, err := app.UserCollection.Find(c, filter, options.Find().SetProjection(bson.M{"password": 0, "_id": 0}))
 		if err != nil {
+			l.DebugF("Error: %v", err)
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Your request could not be processed. Please try again."})
 			return
 		}
@@ -47,6 +50,7 @@ func SearchUsers(app *conf.Config) gin.HandlerFunc {
 
 		var users []User
 		if err = cursor.All(c, &users); err != nil {
+			l.DebugF("Error: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Error decoding users"})
 			return
 		}
@@ -67,7 +71,7 @@ func SearchUsers(app *conf.Config) gin.HandlerFunc {
 				Updated:     user.Updated,
 			})
 			if user.Merchant != primitive.NilObjectID {
-				var merchant merchant.Merchant
+				var merchant Merchant
 				err := app.MerchantCollection.FindOne(c, bson.M{"_id": user.Merchant}).Decode(&merchant)
 				if err == nil {
 					searchUsers[i].Merchant = merchant
@@ -105,6 +109,7 @@ func FetchUsers(app *conf.Config) gin.HandlerFunc {
 
 		cursor, err := app.UserCollection.Find(c, bson.M{}, findOptions)
 		if err != nil {
+			l.DebugF("Error: %v", err)
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Your request could not be processed. Please try again."})
 			return
 		}
@@ -112,6 +117,7 @@ func FetchUsers(app *conf.Config) gin.HandlerFunc {
 
 		var users []User
 		if err = cursor.All(c, &users); err != nil {
+			l.DebugF("Error: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Error decoding users"})
 			return
 		}
@@ -132,7 +138,7 @@ func FetchUsers(app *conf.Config) gin.HandlerFunc {
 				Updated:     user.Updated,
 			})
 			if user.Merchant != primitive.NilObjectID {
-				var merchant merchant.Merchant
+				var merchant Merchant
 				err := app.MerchantCollection.FindOne(c, bson.M{"_id": user.Merchant}).Decode(&merchant)
 				if err == nil {
 					searchUsers[i].Merchant = merchant
@@ -143,6 +149,7 @@ func FetchUsers(app *conf.Config) gin.HandlerFunc {
 		// Get the total count of users
 		count, err := app.UserCollection.CountDocuments(c, bson.M{})
 		if err != nil {
+			l.DebugF("Error: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Error counting users"})
 			return
 		}
@@ -169,6 +176,7 @@ func GetCurrentUser(app *conf.Config) gin.HandlerFunc {
 		// Convert userID to ObjectID
 		objID, err := primitive.ObjectIDFromHex(userID.(string))
 		if err != nil {
+			l.DebugF("Error: %v", err)
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
 			return
 		}
@@ -177,6 +185,7 @@ func GetCurrentUser(app *conf.Config) gin.HandlerFunc {
 		var user User
 		err = app.UserCollection.FindOne(c, bson.M{"_id": objID}, options.FindOne().SetProjection(bson.M{"password": 0})).Decode(&user)
 		if err != nil {
+			l.DebugF("Error: %v", err)
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Your request could not be processed. Please try again."})
 			return
 		}
@@ -195,7 +204,7 @@ func GetCurrentUser(app *conf.Config) gin.HandlerFunc {
 		SearchedUser.Updated = user.Updated
 
 		if user.Merchant != primitive.NilObjectID {
-			var merchant merchant.Merchant
+			var merchant Merchant
 			err := app.MerchantCollection.FindOne(c, bson.M{"_id": user.Merchant}).Decode(&merchant)
 			if err == nil {
 				SearchedUser.Merchant = merchant
@@ -219,13 +228,17 @@ func UpdateUserProfile(app *conf.Config) gin.HandlerFunc {
 		// Convert userID to ObjectID
 		objID, err := primitive.ObjectIDFromHex(userID.(string))
 		if err != nil {
+			l.DebugF("Error: %v", err)
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
 			return
 		}
-
+		// var updateTwo interface{}
+		// c.ShouldBind(&updateTwo)
+		// fmt.Printf("%#v\n", updateTwo)
 		// Parse the update data from the request body
 		var update UserUpdate
 		if err := c.ShouldBindJSON(&update); err != nil {
+			l.DebugF("Error: %v", err)
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
 			return
 		}
@@ -239,6 +252,7 @@ func UpdateUserProfile(app *conf.Config) gin.HandlerFunc {
 		}
 		updateResult := app.UserCollection.FindOneAndUpdate(c, filter, bson.M{"$set": update}, options.FindOneAndUpdate().SetReturnDocument(options.After).SetProjection(exclude))
 		if updateResult.Err() != nil {
+			l.DebugF("Error: %v", err)
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Your request could not be processed. Please try again."})
 			return
 		}
@@ -246,6 +260,7 @@ func UpdateUserProfile(app *conf.Config) gin.HandlerFunc {
 		// Decode the updated user document
 		var updatedUser User
 		if err := updateResult.Decode(&updatedUser); err != nil {
+			l.DebugF("Error: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Error decoding updated user"})
 			return
 		}

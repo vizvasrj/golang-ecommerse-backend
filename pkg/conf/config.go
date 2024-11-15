@@ -8,6 +8,7 @@ import (
 )
 
 type Config struct {
+	DB                 *mongo.Client
 	AddressCollection  *mongo.Collection
 	CartCollection     *mongo.Collection
 	ContactCollection  *mongo.Collection

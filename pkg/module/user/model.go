@@ -1,19 +1,10 @@
 package user
 
 import (
-	"src/pkg/module/merchant"
+	"src/common"
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson/primitive"
-)
-
-// UserRole type
-type UserRole string
-
-const (
-	RoleAdmin    UserRole = "ROLE ADMIN"
-	RoleMember   UserRole = "ROLE MEMBER"
-	RoleMerchant UserRole = "ROLE MERCHANT"
 )
 
 type EmailProvider string
@@ -36,7 +27,7 @@ type User struct {
 	GoogleID             string             `bson:"googleId,omitempty" json:"googleId,omitempty"`
 	FacebookID           string             `bson:"facebookId,omitempty" json:"facebookId,omitempty"`
 	Avatar               string             `bson:"avatar,omitempty" json:"avatar,omitempty"`
-	Role                 UserRole           `bson:"role,omitempty" json:"role,omitempty"`
+	Role                 common.UserRole    `bson:"role,omitempty" json:"role,omitempty"`
 	ResetPasswordToken   string             `bson:"resetPasswordToken,omitempty" json:"resetPasswordToken,omitempty"`
 	ResetPasswordExpires time.Time          `bson:"resetPasswordExpires,omitempty" json:"resetPasswordExpires,omitempty"`
 	Updated              time.Time          `bson:"updated,omitempty" json:"updated,omitempty"`
@@ -50,12 +41,12 @@ type UserSearch struct {
 	FirstName            string             `bson:"firstName,omitempty" json:"firstName,omitempty"`
 	LastName             string             `bson:"lastName,omitempty" json:"lastName,omitempty"`
 	Password             string             `bson:"password,omitempty" json:"password,omitempty"`
-	Merchant             merchant.Merchant  `bson:"merchant,omitempty" json:"merchant,omitempty"`
+	Merchant             Merchant           `bson:"merchant,omitempty" json:"merchant,omitempty"`
 	Provider             EmailProvider      `bson:"provider,omitempty" json:"provider,omitempty"`
 	GoogleID             string             `bson:"googleId,omitempty" json:"googleId,omitempty"`
 	FacebookID           string             `bson:"facebookId,omitempty" json:"facebookId,omitempty"`
 	Avatar               string             `bson:"avatar,omitempty" json:"avatar,omitempty"`
-	Role                 UserRole           `bson:"role,omitempty" json:"role,omitempty"`
+	Role                 common.UserRole    `bson:"role,omitempty" json:"role,omitempty"`
 	ResetPasswordToken   string             `bson:"resetPasswordToken,omitempty" json:"resetPasswordToken,omitempty"`
 	ResetPasswordExpires time.Time          `bson:"resetPasswordExpires,omitempty" json:"resetPasswordExpires,omitempty"`
 	Updated              time.Time          `bson:"updated,omitempty" json:"updated,omitempty"`
@@ -63,8 +54,10 @@ type UserSearch struct {
 }
 
 type UserUpdate struct {
-	FirstName   string `json:"firstName"`
-	LastName    string `json:"lastName"`
-	Email       string `json:"email"`
-	PhoneNumber string `json:"phoneNumber"`
+	FirstName   string `bson:"firstName" json:"firstName"`
+	LastName    string `bson:"lastName" json:"lastName"`
+	PhoneNumber string `bson:"phoneNumber" json:"phoneNumber"`
+	// Email       string `json:"email"`
 }
+
+// merchant model

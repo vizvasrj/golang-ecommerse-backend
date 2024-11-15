@@ -1,11 +1,12 @@
-package merchant
+package user
 
 import (
 	"fmt"
 	"net/http"
 	"regexp"
+	"src/common"
+	"src/l"
 	"src/pkg/conf"
-	"src/pkg/module/user"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
@@ -20,6 +21,7 @@ func AddMerchant(app *conf.Config) gin.HandlerFunc {
 		var addMerchant MerchantAdd
 
 		if err := c.ShouldBindJSON(&addMerchant); err != nil {
+			l.DebugF("Error: %v", err)
 			c.JSON(http.StatusBadRequest, gin.H{"error": "You must enter your name, email, business description, phone number, and email address."})
 			return
 		}
@@ -28,6 +30,7 @@ func AddMerchant(app *conf.Config) gin.HandlerFunc {
 		var existingMerchant Merchant
 		err := app.MerchantCollection.FindOne(c, bson.M{"email": addMerchant.Email}).Decode(&existingMerchant)
 		if err == nil {
+			l.DebugF("Error: %v", err)
 			c.JSON(http.StatusBadRequest, gin.H{"error": "That email address is already in use."})
 			return
 		}
@@ -35,6 +38,7 @@ func AddMerchant(app *conf.Config) gin.HandlerFunc {
 		// Save the merchant document to the database
 		result, err := app.MerchantCollection.InsertOne(c, addMerchant)
 		if err != nil {
+			l.DebugF("Error: %v", err)
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Your request could not be processed. Please try again."})
 			return
 		}
@@ -42,6 +46,7 @@ func AddMerchant(app *conf.Config) gin.HandlerFunc {
 		// todo Send a confirmation email
 		// err = app.Mailgun.SendEmail(req.Email, "merchant-application")
 		// if err != nil {
+		l.DebugF("Error: %v", err)
 		// 	c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to send confirmation email."})
 		// 	return
 		// }
@@ -66,6 +71,7 @@ func SearchMerchants(app *conf.Config) gin.HandlerFunc {
 		// Create a regular expression for the search term
 		regex, err := regexp.Compile("(?i)" + search)
 		if err != nil {
+			l.DebugF("Error: %v", err)
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid search query"})
 			return
 		}
@@ -83,6 +89,7 @@ func SearchMerchants(app *conf.Config) gin.HandlerFunc {
 
 		cursor, err := app.MerchantCollection.Find(c, filter, options.Find().SetProjection(bson.M{"brand": 1, "name": 1}))
 		if err != nil {
+			l.DebugF("Error: %v", err)
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Your request could not be processed. Please try again."})
 			return
 		}
@@ -90,6 +97,7 @@ func SearchMerchants(app *conf.Config) gin.HandlerFunc {
 
 		var merchants []Merchant
 		if err := cursor.All(c, &merchants); err != nil {
+			l.DebugF("Error: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Error decoding merchants"})
 			return
 		}
@@ -106,12 +114,14 @@ func FetchAllMerchants(app *conf.Config) gin.HandlerFunc {
 
 		page, err := strconv.Atoi(pageStr)
 		if err != nil || page < 1 {
+			l.DebugF("Error: %v", err)
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid page number"})
 			return
 		}
 
 		limit, err := strconv.Atoi(limitStr)
 		if err != nil || limit < 1 {
+			l.DebugF("Error: %v", err)
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid limit number"})
 			return
 		}
@@ -127,6 +137,7 @@ func FetchAllMerchants(app *conf.Config) gin.HandlerFunc {
 
 		cursor, err := app.MerchantCollection.Find(c, bson.M{}, findOptions)
 		if err != nil {
+			l.DebugF("Error: %v", err)
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Your request could not be processed. Please try again."})
 			return
 		}
@@ -134,6 +145,7 @@ func FetchAllMerchants(app *conf.Config) gin.HandlerFunc {
 
 		var merchants []Merchant
 		if err := cursor.All(c, &merchants); err != nil {
+			l.DebugF("Error: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Error decoding merchants"})
 			return
 		}
@@ -141,6 +153,7 @@ func FetchAllMerchants(app *conf.Config) gin.HandlerFunc {
 		// Count the total number of merchants
 		count, err := app.MerchantCollection.CountDocuments(c, bson.M{})
 		if err != nil {
+			l.DebugF("Error: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Error counting merchants"})
 			return
 		}
@@ -157,12 +170,12 @@ func FetchAllMerchants(app *conf.Config) gin.HandlerFunc {
 
 func DisableMerchantAccount(app *conf.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		userID, ok := c.MustGet("uid").(primitive.ObjectID)
+		userID, ok := c.MustGet("userID").(primitive.ObjectID)
 		if !ok {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 			return
 		}
-		userRole, ok := c.MustGet("role").(user.UserRole)
+		userRole, ok := c.MustGet("role").(common.UserRole)
 		if !ok {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 			return
@@ -173,12 +186,14 @@ func DisableMerchantAccount(app *conf.Config) gin.HandlerFunc {
 			IsActive bool `json:"isActive"`
 		}
 		if err := c.ShouldBindJSON(&update); err != nil {
+			l.DebugF("Error: %v", err)
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
 			return
 		}
 
 		merchantObjectId, err := primitive.ObjectIDFromHex(merchantId)
 		if err != nil {
+			l.DebugF("Error: %v", err)
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid merchant ID"})
 			return
 		}
@@ -188,7 +203,8 @@ func DisableMerchantAccount(app *conf.Config) gin.HandlerFunc {
 		// authUserRole := c.GetString("userRole")
 
 		// Check if the authenticated user is the same as the merchant or an admin
-		if userRole != user.RoleAdmin || userID != merchantObjectId {
+		if userRole != common.RoleAdmin || userID != merchantObjectId {
+			l.DebugF("Error: %v", err)
 			c.JSON(http.StatusForbidden, gin.H{"error": "You are not authorized to perform this action"})
 			return
 		}
@@ -200,8 +216,10 @@ func DisableMerchantAccount(app *conf.Config) gin.HandlerFunc {
 		err = app.MerchantCollection.FindOneAndUpdate(c, query, updateDoc).Decode(&merchantDoc)
 		if err != nil {
 			if err == mongo.ErrNoDocuments {
+				l.DebugF("Error: %v", err)
 				c.JSON(http.StatusNotFound, gin.H{"error": "Merchant not found"})
 			} else {
+				l.DebugF("Error: %v", err)
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "Error updating merchant"})
 			}
 			return
@@ -211,10 +229,12 @@ func DisableMerchantAccount(app *conf.Config) gin.HandlerFunc {
 			// todo unimplemented
 			fmt.Println("unimplemented")
 			// if err := deactivateBrand(merchantId); err != nil {
+			// l.DebugF("Error: %v", err)
 			// 	c.JSON(http.StatusInternalServerError, gin.H{"error": "Error deactivating brand"})
 			// 	return
 			// }
 			// if err := mailgun.SendEmail(merchantDoc.Email, "merchant-deactivate-account"); err != nil {
+			// l.DebugF("Error: %v", err)
 			// 	c.JSON(http.StatusInternalServerError, gin.H{"error": "Error sending email"})
 			// 	return
 			// }
@@ -222,44 +242,4 @@ func DisableMerchantAccount(app *conf.Config) gin.HandlerFunc {
 
 		c.JSON(http.StatusOK, gin.H{"success": true})
 	}
-}
-
-func ApproveMerchant(app *conf.Config) gin.HandlerFunc {
-	return func(c *gin.Context) {
-
-		merchantId := c.Param("id")
-		merchantObjectId, err := primitive.ObjectIDFromHex(merchantId)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid merchant ID"})
-			return
-		}
-
-		query := bson.M{"_id": merchantObjectId}
-		update := bson.M{
-			"$set": bson.M{
-				"status":   MERCHANT_STATUS_APPROVED,
-				"isActive": true,
-			},
-		}
-
-		var merchantDoc Merchant
-		err = app.MerchantCollection.FindOneAndUpdate(c, query, update, options.FindOneAndUpdate().SetReturnDocument(options.After)).Decode(&merchantDoc)
-		if err != nil {
-			if err == mongo.ErrNoDocuments {
-				c.JSON(http.StatusNotFound, gin.H{"error": "Merchant not found"})
-			} else {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "Error updating merchant"})
-			}
-			return
-		}
-
-		err = createMerchantUser(merchantDoc.Email, merchantDoc.Name, merchantId, c.Request.Host)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Error creating merchant user"})
-			return
-		}
-
-		c.JSON(http.StatusOK, gin.H{"success": true})
-	}
-
 }

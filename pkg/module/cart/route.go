@@ -1,1 +1,30 @@
 package cart
+
+import (
+	"src/pkg/conf"
+	"src/pkg/middleware"
+
+	"github.com/gin-gonic/gin"
+)
+
+func SetupRoute(path string, r *gin.RouterGroup, app *conf.Config) {
+	cart_route := r.Group(path)
+	{
+		cart_route.POST("/add",
+			middleware.AuthMiddleware(app),
+			AddToCart(app))
+
+		cart_route.DELETE("/delete/:cartId",
+			middleware.AuthMiddleware(app),
+			DeleteCart(app))
+
+		cart_route.POST("/add/:cartId",
+			middleware.AuthMiddleware(app),
+			AddToCart(app))
+
+		cart_route.DELETE("/delete/:cartId/:productId",
+			middleware.AuthMiddleware(app),
+			RemoveProductFromCart(app))
+
+	}
+}

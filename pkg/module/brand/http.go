@@ -2,6 +2,7 @@ package brand
 
 import (
 	"net/http"
+	"src/l"
 	"src/pkg/conf"
 
 	"github.com/gin-gonic/gin"
@@ -13,6 +14,7 @@ func AddBrand(app *conf.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var brand Brand
 		if err := c.ShouldBindJSON(&brand); err != nil {
+			l.DebugF("Error: %v", err)
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid input"})
 			return
 		}
@@ -24,6 +26,7 @@ func AddBrand(app *conf.Config) gin.HandlerFunc {
 
 		_, err := app.BrandCollection.InsertOne(c, brand)
 		if err != nil {
+			l.DebugF("Error: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Your request could not be processed. Please try again."})
 			return
 		}
@@ -35,22 +38,41 @@ func AddBrand(app *conf.Config) gin.HandlerFunc {
 // fetch store brands api
 func ListBrands(app *conf.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		brands, err := app.BrandCollection.Find(c, bson.M{"isActive": true})
+		cursor, err := app.BrandCollection.Find(c, bson.M{"isActive": true})
 		if err != nil {
+			l.DebugF("Error: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Your request could not be processed. Please try again."})
 			return
 		}
+		defer cursor.Close(c)
+
+		var brands []Brand
+		if err = cursor.All(c, &brands); err != nil {
+			l.DebugF("Error: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Your request could not be processed. Please try again."})
+			return
+		}
+
 		c.JSON(http.StatusOK, gin.H{"brands": brands})
 	}
 }
 
 func GetBrands(app *conf.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		brands, err := app.BrandCollection.Find(c, bson.M{"isActive": true})
+		cursor, err := app.BrandCollection.Find(c, bson.M{"isActive": true})
 		if err != nil {
+			l.DebugF("Error: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Your request could not be processed. Please try again."})
 			return
 		}
+		defer cursor.Close(c)
+		var brands []Brand
+		if err = cursor.All(c, &brands); err != nil {
+			l.DebugF("Error: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Your request could not be processed. Please try again."})
+			return
+		}
+
 		c.JSON(http.StatusOK, gin.H{"brands": brands})
 	}
 }
@@ -61,6 +83,7 @@ func GetBrandByID(app *conf.Config) gin.HandlerFunc {
 		brandId := c.Param("id")
 		objectId, err := primitive.ObjectIDFromHex(brandId)
 		if err != nil {
+			l.DebugF("Error: %v", err)
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid brand ID"})
 			return
 		}
@@ -83,12 +106,14 @@ func ListSelectBrands(app *conf.Config) gin.HandlerFunc {
 		// Fetch brands for the specific merchant
 		cursor, err := app.BrandCollection.Find(c, bson.M{"name": 1})
 		if err != nil {
+			l.DebugF("Error: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Your request could not be processed. Please try again."})
 			return
 		}
 		defer cursor.Close(c)
 
 		if err = cursor.All(c, &brands); err != nil {
+			l.DebugF("Error: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Your request could not be processed. Please try again."})
 			return
 		}
@@ -102,12 +127,14 @@ func UpdateBrand(app *conf.Config) gin.HandlerFunc {
 		brandId := c.Param("id")
 		objectId, err := primitive.ObjectIDFromHex(brandId)
 		if err != nil {
+			l.DebugF("Error: %v", err)
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid brand ID"})
 			return
 		}
 
 		var updateBrand BrandUpdate
 		if err := c.ShouldBindJSON(&updateBrand); err != nil {
+			l.DebugF("Error: %v", err)
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
 			return
 		}
@@ -116,6 +143,7 @@ func UpdateBrand(app *conf.Config) gin.HandlerFunc {
 		var foundBrand Brand
 		err = app.BrandCollection.FindOne(c, bson.M{"slug": slug}).Decode(&foundBrand)
 		if err == nil && foundBrand.ID != objectId {
+			l.DebugF("Error: %v", err)
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Slug is already in use."})
 			return
 		}
@@ -126,6 +154,7 @@ func UpdateBrand(app *conf.Config) gin.HandlerFunc {
 
 		_, err = app.BrandCollection.UpdateOne(c, bson.M{"_id": objectId}, update)
 		if err != nil {
+			l.DebugF("Error: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Your request could not be processed. Please try again."})
 			return
 		}
@@ -142,6 +171,7 @@ func UpdateBrandActive(app *conf.Config) gin.HandlerFunc {
 		brandId := c.Param("id")
 		objectId, err := primitive.ObjectIDFromHex(brandId)
 		if err != nil {
+			l.DebugF("Error: %v", err)
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid brand ID"})
 			return
 		}
@@ -150,6 +180,7 @@ func UpdateBrandActive(app *conf.Config) gin.HandlerFunc {
 			IsActive bool `json:"isActive"`
 		}
 		if err := c.ShouldBindJSON(&updateBrand); err != nil {
+			l.DebugF("Error: %v", err)
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
 			return
 		}
@@ -160,6 +191,7 @@ func UpdateBrandActive(app *conf.Config) gin.HandlerFunc {
 
 		_, err = app.BrandCollection.UpdateOne(c, bson.M{"_id": objectId}, update)
 		if err != nil {
+			l.DebugF("Error: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Your request could not be processed. Please try again."})
 			return
 		}
@@ -176,12 +208,14 @@ func DeleteBrand(app *conf.Config) gin.HandlerFunc {
 		brandId := c.Param("id")
 		objectId, err := primitive.ObjectIDFromHex(brandId)
 		if err != nil {
+			l.DebugF("Error: %v", err)
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid brand ID"})
 			return
 		}
 
 		result, err := app.BrandCollection.DeleteOne(c, bson.M{"_id": objectId})
 		if err != nil {
+			l.DebugF("Error: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Your request could not be processed. Please try again."})
 			return
 		}

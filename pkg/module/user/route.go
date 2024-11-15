@@ -1,20 +1,21 @@
 package user
 
 import (
+	"src/common"
 	"src/pkg/conf"
 	"src/pkg/middleware"
 
 	"github.com/gin-gonic/gin"
 )
 
-func SetupRouter(path string, app *conf.Config, r *gin.Engine) {
+func SetupRouter(path string, r *gin.RouterGroup, app *conf.Config) {
 	userRoute := r.Group(path)
 	{
 		userRoute.GET("/search",
 			middleware.AuthMiddleware(app),
-			middleware.RoleCheck(RoleAdmin, RoleMerchant),
+			middleware.RoleCheck(common.RoleAdmin, common.RoleMerchant),
 			SearchUsers(app))
-		userRoute.GET("/",
+		userRoute.GET("",
 			middleware.AuthMiddleware(app),
 			FetchUsers(app))
 
@@ -22,7 +23,7 @@ func SetupRouter(path string, app *conf.Config, r *gin.Engine) {
 			middleware.AuthMiddleware(app),
 			GetCurrentUser(app))
 
-		userRoute.PUT("/",
+		userRoute.PUT("",
 			middleware.AuthMiddleware(app),
 			UpdateUserProfile(app))
 

@@ -9,7 +9,7 @@ import (
 
 // Brand represents the brand model
 type Brand struct {
-	ID          primitive.ObjectID `bson:"_id,omitempty" json:"id"`
+	ID          primitive.ObjectID `bson:"_id,omitempty" json:"_id"`
 	Name        string             `bson:"name" json:"name"`
 	Slug        string             `bson:"slug" json:"slug"`
 	Image       Image              `bson:"image" json:"image"`

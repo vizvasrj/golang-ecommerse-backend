@@ -28,3 +28,10 @@ type Order struct {
 	Created time.Time          `bson:"created,omitempty" json:"created,omitempty"`
 	Address Address            `bson:"address,omitempty" json:"address,omitempty"`
 }
+
+type OrderAdd struct {
+	UserID  primitive.ObjectID `json:"userId"`
+	CartID  string             `json:"cartId"`
+	Total   float64            `json:"total"`
+	Address Address            `json:"address"`
+}

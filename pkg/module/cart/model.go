@@ -27,8 +27,9 @@ type CartItem struct {
 }
 
 type Cart struct {
+	ID       primitive.ObjectID  `bson:"_id" json:"id"`
 	Products []CartItem          `bson:"products" json:"products"`
-	User     string              `bson:"user" json:"user"`
+	User     primitive.ObjectID  `bson:"user" json:"user"`
 	Updated  primitive.Timestamp `bson:"updated" json:"updated"`
 	Created  primitive.Timestamp `bson:"created" json:"created"`
 }

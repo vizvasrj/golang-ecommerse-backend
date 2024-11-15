@@ -1,14 +1,15 @@
 package auth
 
 import (
-	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
+	"src/l"
 	"src/pkg/conf"
+	"src/pkg/middleware"
 	"src/pkg/module/user"
 	"time"
 
@@ -37,6 +38,7 @@ func Login(app *conf.Config) gin.HandlerFunc {
 			Password string `json:"password"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil {
+			l.DebugF("Error: %v", err)
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
 			return
 		}
@@ -45,39 +47,45 @@ func Login(app *conf.Config) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Email and password are required"})
 			return
 		}
-		fmt.Println("email: ", req.Email)
-		fmt.Println("password: ", req.Password)
+
 		var logedInUser user.User
-		err := app.UserCollection.FindOne(context.Background(), bson.M{"email": req.Email}).Decode(&logedInUser)
+		err := app.UserCollection.FindOne(c, bson.M{"email": req.Email}).Decode(&logedInUser)
 		if err != nil {
+			l.DebugF("Error: %v", err)
 			c.JSON(http.StatusBadRequest, gin.H{"error": "No user found for this email address"})
 			return
 		}
 
 		if logedInUser.Provider != user.EmailProviderEmail {
+			l.DebugF("Error: %v", err)
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Email address is already in use with another provider"})
 			return
 		}
 
 		err = bcrypt.CompareHashAndPassword([]byte(logedInUser.Password), []byte(req.Password))
 		if err != nil {
+			l.DebugF("Error: %v", err)
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Password incorrect"})
 			return
 		}
-
-		token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-			"id":  logedInUser.ID,
-			"exp": time.Now().Add(app.TokenLifetime).Unix(),
-		})
-		tokenString, err := token.SignedString([]byte(app.Env.SecretJWT))
+		sData := middleware.SignedDetails{
+			Email:      logedInUser.Email,
+			FirstName:  logedInUser.FirstName,
+			LastName:   logedInUser.LastName,
+			Uid:        logedInUser.ID.Hex(),
+			Role:       logedInUser.Role,
+			MerchantID: logedInUser.Merchant.Hex(),
+		}
+		token, _, err := middleware.GenerateTokens(app, sData)
 		if err != nil {
+			l.DebugF("Error: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
 			return
 		}
 
 		c.JSON(http.StatusOK, gin.H{
 			"success": true,
-			"token":   "Bearer " + tokenString,
+			"token":   "Bearer " + token,
 			"user": gin.H{
 				"id":        logedInUser.ID,
 				"firstName": logedInUser.FirstName,
@@ -100,6 +108,7 @@ func Register(app *conf.Config) gin.HandlerFunc {
 			IsSubscribed bool   `json:"isSubscribed"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil {
+			l.DebugF("Error: %v", err)
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
 			return
 		}
@@ -112,50 +121,67 @@ func Register(app *conf.Config) gin.HandlerFunc {
 		var existingUser struct {
 			ID string `bson:"_id"`
 		}
-		err := app.UserCollection.FindOne(context.Background(), bson.M{"email": req.Email}).Decode(&existingUser)
+		err := app.UserCollection.FindOne(c, bson.M{"email": req.Email}).Decode(&existingUser)
 		if err == nil {
+			l.DebugF("Error: %v", err)
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Email address is already in use"})
 			return
 		}
 
 		hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 		if err != nil {
+			l.DebugF("Error: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to hash password"})
 			return
 		}
 
-		user := bson.M{
+		updateUser := bson.M{
 			"email":     req.Email,
 			"password":  string(hash),
 			"firstName": req.FirstName,
 			"lastName":  req.LastName,
 			"provider":  "email",
 		}
-		_, err = app.UserCollection.InsertOne(context.Background(), user)
+		insertResult, err := app.UserCollection.InsertOne(c, updateUser)
 		if err != nil {
+			l.DebugF("Error: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create user"})
 			return
 		}
 
-		token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-			"id":  user["_id"],
-			"exp": time.Now().Add(app.TokenLifetime).Unix(),
-		})
-		tokenString, err := token.SignedString([]byte(app.Env.SecretJWT))
+		var returnedUser user.User
+		err = app.UserCollection.FindOne(c, bson.M{"_id": insertResult.InsertedID}).Decode(&returnedUser)
 		if err != nil {
+			l.DebugF("Error: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch created user"})
+			return
+		}
+
+		sData := middleware.SignedDetails{
+			Email:      returnedUser.Email,
+			FirstName:  returnedUser.FirstName,
+			LastName:   returnedUser.LastName,
+			Uid:        returnedUser.ID.Hex(),
+			Role:       returnedUser.Role,
+			MerchantID: returnedUser.Merchant.Hex(),
+		}
+
+		token, _, err := middleware.GenerateTokens(app, sData)
+		if err != nil {
+			l.DebugF("Error: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
 			return
 		}
 
 		c.JSON(http.StatusOK, gin.H{
 			"success": true,
-			"token":   "Bearer " + tokenString,
+			"token":   "Bearer " + token,
 			"user": gin.H{
-				"id":        user["_id"],
-				"firstName": user["firstName"],
-				"lastName":  user["lastName"],
-				"email":     user["email"],
-				"role":      user["role"],
+				"id":        returnedUser.ID,
+				"firstName": returnedUser.FirstName,
+				"lastName":  returnedUser.LastName,
+				"email":     returnedUser.Email,
+				"role":      returnedUser.Role,
 			},
 		})
 	}
@@ -167,6 +193,7 @@ func ForgotPassword(app *conf.Config) gin.HandlerFunc {
 			Email string `json:"email"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil {
+			l.DebugF("Error: %v", err)
 			c.JSON(http.StatusBadRequest, gin.H{"error": "You must enter an email address."})
 			return
 		}
@@ -177,8 +204,9 @@ func ForgotPassword(app *conf.Config) gin.HandlerFunc {
 			ResetPasswordToken   string `bson:"resetPasswordToken"`
 			ResetPasswordExpires int64  `bson:"resetPasswordExpires"`
 		}
-		err := app.UserCollection.FindOne(context.Background(), bson.M{"email": req.Email}).Decode(&user)
+		err := app.UserCollection.FindOne(c, bson.M{"email": req.Email}).Decode(&user)
 		if err != nil {
+			l.DebugF("Error: %v", err)
 			c.JSON(http.StatusBadRequest, gin.H{"error": "No user found for this email address."})
 			return
 		}
@@ -186,6 +214,7 @@ func ForgotPassword(app *conf.Config) gin.HandlerFunc {
 		buffer := make([]byte, 48)
 		_, err = rand.Read(buffer)
 		if err != nil {
+			l.DebugF("Error: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate reset token"})
 			return
 		}
@@ -198,8 +227,9 @@ func ForgotPassword(app *conf.Config) gin.HandlerFunc {
 				"resetPasswordExpires": expireTime,
 			},
 		}
-		_, err = app.UserCollection.UpdateOne(context.Background(), bson.M{"email": req.Email}, update)
+		_, err = app.UserCollection.UpdateOne(c, bson.M{"email": req.Email}, update)
 		if err != nil {
+			l.DebugF("Error: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update user"})
 			return
 		}
@@ -215,6 +245,7 @@ func ForgotPassword(app *conf.Config) gin.HandlerFunc {
 		// client := sendgrid.NewSendClient("YOUR_SENDGRID_API_KEY")
 		// _, err = client.Send(message)
 		// if err != nil {
+		l.DebugF("Error: %v", err)
 		// 	c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to send email"})
 		// 	return
 		// }
@@ -233,6 +264,7 @@ func ResetPasswordFromToken(app *conf.Config) gin.HandlerFunc {
 			Password string `json:"password"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil {
+			l.DebugF("Error: %v", err)
 			c.JSON(http.StatusBadRequest, gin.H{"error": "You must enter a password."})
 			return
 		}
@@ -244,17 +276,19 @@ func ResetPasswordFromToken(app *conf.Config) gin.HandlerFunc {
 			ResetPasswordToken   string `bson:"resetPasswordToken"`
 			ResetPasswordExpires int64  `bson:"resetPasswordExpires"`
 		}
-		err := app.UserCollection.FindOne(context.Background(), bson.M{
+		err := app.UserCollection.FindOne(c, bson.M{
 			"resetPasswordToken":   token,
 			"resetPasswordExpires": bson.M{"$gt": time.Now().Unix()},
 		}).Decode(&user)
 		if err != nil {
+			l.DebugF("Error: %v", err)
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Your token has expired. Please attempt to reset your password again."})
 			return
 		}
 
 		salt, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 		if err != nil {
+			l.DebugF("Error: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to hash password"})
 			return
 		}
@@ -266,8 +300,9 @@ func ResetPasswordFromToken(app *conf.Config) gin.HandlerFunc {
 				"resetPasswordExpires": nil,
 			},
 		}
-		_, err = app.UserCollection.UpdateOne(context.Background(), bson.M{"email": user.Email}, update)
+		_, err = app.UserCollection.UpdateOne(c, bson.M{"email": user.Email}, update)
 		if err != nil {
+			l.DebugF("Error: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update user"})
 			return
 		}
@@ -281,6 +316,7 @@ func ResetPasswordFromToken(app *conf.Config) gin.HandlerFunc {
 		// client := sendgrid.NewSendClient("YOUR_SENDGRID_API_KEY")
 		// _, err = client.Send(message)
 		// if err != nil {
+		l.DebugF("Error: %v", err)
 		// 	c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to send email"})
 		// 	return
 		// }
@@ -299,6 +335,7 @@ func ResetPassword(app *conf.Config) gin.HandlerFunc {
 			ConfirmPassword string `json:"confirmPassword"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil {
+			l.DebugF("Error: %v", err)
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
 			return
 		}
@@ -319,20 +356,23 @@ func ResetPassword(app *conf.Config) gin.HandlerFunc {
 			Email    string `bson:"email"`
 			Password string `bson:"password"`
 		}
-		err := app.UserCollection.FindOne(context.Background(), bson.M{"email": email}).Decode(&user)
+		err := app.UserCollection.FindOne(c, bson.M{"email": email}).Decode(&user)
 		if err != nil {
+			l.DebugF("Error: %v", err)
 			c.JSON(http.StatusBadRequest, gin.H{"error": "That email address is already in use."})
 			return
 		}
 
 		err = bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(req.Password))
 		if err != nil {
+			l.DebugF("Error: %v", err)
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Please enter your correct old password."})
 			return
 		}
 
 		salt, err := bcrypt.GenerateFromPassword([]byte(req.ConfirmPassword), bcrypt.DefaultCost)
 		if err != nil {
+			l.DebugF("Error: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to hash password"})
 			return
 		}
@@ -342,8 +382,9 @@ func ResetPassword(app *conf.Config) gin.HandlerFunc {
 				"password": string(salt),
 			},
 		}
-		_, err = app.UserCollection.UpdateOne(context.Background(), bson.M{"email": user.Email}, update)
+		_, err = app.UserCollection.UpdateOne(c, bson.M{"email": user.Email}, update)
 		if err != nil {
+			l.DebugF("Error: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update user"})
 			return
 		}
@@ -357,6 +398,7 @@ func ResetPassword(app *conf.Config) gin.HandlerFunc {
 		// client := sendgrid.NewSendClient("YOUR_SENDGRID_API_KEY")
 		// _, err = client.Send(message)
 		// if err != nil {
+		l.DebugF("Error: %v", err)
 		// 	c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to send email"})
 		// 	return
 		// }
@@ -378,13 +420,13 @@ func GoogleLogin(app *conf.Config) gin.HandlerFunc {
 func GoogleCallback(app *conf.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		code := c.Query("code")
-		token, err := oauthConfig.Exchange(context.Background(), code)
+		token, err := oauthConfig.Exchange(c, code)
 		if err != nil {
 			c.Redirect(http.StatusTemporaryRedirect, app.Env.ClientURL+"/login")
 			return
 		}
 
-		client := oauthConfig.Client(context.Background(), token)
+		client := oauthConfig.Client(c, token)
 		resp, err := client.Get("https://www.googleapis.com/oauth2/v2/userinfo")
 		if err != nil {
 			c.Redirect(http.StatusTemporaryRedirect, app.Env.ClientURL+"/login")

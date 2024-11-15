@@ -1,16 +1,27 @@
 package main
 
 import (
+	"log"
 	"src/pkg/conf"
 	"src/pkg/db"
 	"src/pkg/env"
 	"src/pkg/module/address"
 	"src/pkg/module/auth"
+	"src/pkg/module/brand"
+	"src/pkg/module/cart"
+	"src/pkg/module/category"
+	"src/pkg/module/order"
+	"src/pkg/module/product"
+	"src/pkg/module/user"
+	"strings"
+	"time"
 
+	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 )
 
 func main() {
+	log.SetFlags(log.LstdFlags | log.Llongfile)
 	envs, err := env.GetEnv()
 	if err != nil {
 		panic(err)
@@ -34,6 +45,7 @@ func main() {
 	CategoryCollection := db.GetCollection(clinet, envs.DBName, "categories")
 	config := &conf.Config{
 		// ContactCollection:  ContactCollection,
+		DB:                 clinet,
 		AddressCollection:  AddressCollection,
 		CartCollection:     CartCollection,
 		WishlistCollection: WishlistCollection,
@@ -50,9 +62,43 @@ func main() {
 	}
 
 	// Start the server
-	r := gin.Default()
-	auth.SetupRouter("/auth", r, config)
-	address.SetupRouter("/address", r, config)
-	r.Run(":3000")
+	router := gin.Default()
+	router.Use(normalizeURLMiddleware())
+	router.Use(cors.New(cors.Config{
+		AllowOrigins:     []string{"*"},
+		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowHeaders:     []string{"Content-Type", "Authorization"},
+		ExposeHeaders:    []string{"Content-Length"},
+		AllowCredentials: true,
+		MaxAge:           12 * time.Hour,
+	}))
 
+	r := router.Group("/api")
+	{
+
+		auth.SetupRouter("/auth", r, config)
+		address.SetupRouter("/address", r, config)
+		brand.SetupRouter("/brand", r, config)
+		product.SetupRouter("/product", r, config)
+		user.SetupRouter("/user", r, config)
+		user.SetupRouter_Merchant("/merchant", r, config)
+		category.SetupRoute("/category", r, config)
+		cart.SetupRoute("/cart", r, config)
+		order.SetupRoute("/order", r, config)
+	}
+
+	router.Run(":3000")
+
+}
+
+// normalizeURLMiddleware ensures that all URLs are treated consistently
+func normalizeURLMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		path := c.Request.URL.Path
+		// Remove trailing slash if it's not the root path
+		if path != "/" && strings.HasSuffix(path, "/") {
+			c.Request.URL.Path = strings.TrimSuffix(path, "/")
+		}
+		c.Next()
+	}
 }

@@ -1,49 +1,43 @@
-package misc
+package user
 
 import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"src/common"
 	"src/pkg/conf"
-	"src/pkg/module/user"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 )
 
-func createMerchantUser(app *conf.Config, ctx context.Context, email, name string, merchantID primitive.ObjectID, host string) (*mongo.UpdateResult, error) {
+func CreateMerchantUser(app *conf.Config, ctx context.Context, email, name string, merchantID primitive.ObjectID) (*mongo.UpdateResult, error) {
 	firstName := name
 	lastName := ""
-	var existingUser user.User
+	var existingUser User
 	err := app.UserCollection.FindOne(ctx, bson.M{"email": email}).Decode(&existingUser)
 	if err == nil {
 		query := bson.M{"_id": existingUser.ID}
 		update := bson.M{
 			"$set": bson.M{
 				"merchant": merchantID,
-				"role":     ROLE_MERCHANT,
+				"role":     common.RoleMerchant,
 			},
 		}
 
-		merchantCollection := app.DB.Collection("merchants")
 		var merchantDoc Merchant
-		err = merchantCollection.FindOne(ctx, bson.M{"email": email}).Decode(&merchantDoc)
+		err = app.MerchantCollection.FindOne(ctx, bson.M{"email": email}).Decode(&merchantDoc)
 		if err != nil {
 			return nil, err
 		}
 
-		_, err = createMerchantBrand(ctx, merchantID, merchantDoc.Email, merchantDoc.Email)
-		if err != nil {
-			return nil, err
-		}
+		// err = sendEmail(email, "merchant-welcome", nil, name)
+		// if err != nil {
+		// 	return nil, err
+		// }
 
-		err = sendEmail(email, "merchant-welcome", nil, name)
-		if err != nil {
-			return nil, err
-		}
-
-		return userCollection.UpdateOne(ctx, query, update)
+		return app.UserCollection.UpdateOne(ctx, query, update)
 	}
 
 	buffer := make([]byte, 48)
@@ -60,7 +54,7 @@ func createMerchantUser(app *conf.Config, ctx context.Context, email, name strin
 		LastName:           lastName,
 		ResetPasswordToken: resetPasswordToken,
 		Merchant:           merchantID,
-		Role:               ROLE_MERCHANT,
+		Role:               common.RoleMerchant,
 	}
 	// todo send email
 	// err = sendEmail(email, "merchant-signup", host, map[string]string{
@@ -71,6 +65,6 @@ func createMerchantUser(app *conf.Config, ctx context.Context, email, name strin
 	// 	return nil, err
 	// }
 
-	_, err = userCollection.InsertOne(ctx, user)
+	_, err = app.UserCollection.InsertOne(ctx, user)
 	return nil, err
 }
