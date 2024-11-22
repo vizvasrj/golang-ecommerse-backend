@@ -170,16 +170,15 @@ func FetchAllMerchants(app *conf.Config) gin.HandlerFunc {
 
 func DisableMerchantAccount(app *conf.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		userID, ok := c.MustGet("userID").(primitive.ObjectID)
-		if !ok {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		userID, err := primitive.ObjectIDFromHex(c.MustGet("userID").(string))
+		if err != nil {
+			l.DebugF("Error: %v", err)
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
 			return
 		}
-		userRole, ok := c.MustGet("role").(common.UserRole)
-		if !ok {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
-			return
-		}
+
+		userRoleStr := c.MustGet("role").(string)
+		userRole := common.GetUserRole(userRoleStr)
 
 		merchantId := c.Param("id")
 		var update struct {

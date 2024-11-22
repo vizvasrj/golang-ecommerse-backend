@@ -8,11 +8,13 @@ import (
 	"src/l"
 	"src/pkg/conf"
 	"src/pkg/module/cart"
+	"src/pkg/module/product"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
@@ -29,7 +31,12 @@ func AddOrder(app *conf.Config) gin.HandlerFunc {
 			return
 		}
 
-		userID := c.MustGet("userID").(primitive.ObjectID)
+		userID, err := primitive.ObjectIDFromHex(c.MustGet("userID").(string))
+		if err != nil {
+			l.DebugF("Error: %v", err)
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
+			return
+		}
 
 		order := Order{
 			Cart:    req.CartID,
@@ -89,8 +96,14 @@ func SearchOrders(app *conf.Config) gin.HandlerFunc {
 
 		var ordersDoc []Order
 
-		userRole := c.MustGet("role").(common.UserRole)
-		userID := c.MustGet("userID").(primitive.ObjectID)
+		userRoleStr := c.MustGet("role").(string)
+		userRole := common.GetUserRole(userRoleStr)
+		userID, err := primitive.ObjectIDFromHex(c.MustGet("userID").(string))
+		if err != nil {
+			l.DebugF("Error: %v", err)
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
+			return
+		}
 
 		filter := bson.M{"_id": objectID}
 		if userRole != common.RoleAdmin {
@@ -158,6 +171,15 @@ func FetchOrders(app *conf.Config) gin.HandlerFunc {
 			return
 		}
 
+		for _, orderItem := range ordersDoc {
+			err = app.CartCollection.FindOne(c, bson.M{"_id": orderItem.Cart}).Decode(&orderItem.Products)
+			if err != nil {
+				l.DebugF("Error: %v", err)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch cart"})
+				return
+			}
+		}
+
 		count, err := app.OrderCollection.CountDocuments(c, bson.D{})
 		if err != nil {
 			l.DebugF("Error: %v", err)
@@ -165,10 +187,8 @@ func FetchOrders(app *conf.Config) gin.HandlerFunc {
 			return
 		}
 
-		orders := ordersDoc
-
 		c.JSON(http.StatusOK, gin.H{
-			"orders":      orders,
+			"orders":      ordersDoc,
 			"totalPages":  int(math.Ceil(float64(count) / float64(limitNum))),
 			"currentPage": pageNum,
 			"count":       count,
@@ -194,13 +214,18 @@ func FetchUserOrders(app *conf.Config) gin.HandlerFunc {
 			return
 		}
 
-		userID := c.MustGet("userID").(primitive.ObjectID)
+		userID, err := primitive.ObjectIDFromHex(c.MustGet("userID").(string))
+		if err != nil {
+			l.DebugF("Error: %v", err)
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
+			return
+		}
 		filter := bson.M{"user": userID}
-		options := options.Find()
-		options.SetSort(bson.D{{Key: "created", Value: -1}})
-		options.SetLimit(int64(limitNum))
-		options.SetSkip(int64((pageNum - 1) * limitNum))
-		cursor, err := app.OrderCollection.Find(c, filter, options)
+		optionsData := options.Find()
+		optionsData.SetSort(bson.D{{Key: "created", Value: -1}})
+		optionsData.SetLimit(int64(limitNum))
+		optionsData.SetSkip(int64((pageNum - 1) * limitNum))
+		cursor, err := app.OrderCollection.Find(c, filter, optionsData)
 		if err != nil {
 			l.DebugF("Error: %v", err)
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Your request could not be processed. Please try again."})
@@ -213,15 +238,32 @@ func FetchUserOrders(app *conf.Config) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Your request could not be processed. Please try again."})
 			return
 		}
+
+		for i, orderItem := range ordersDoc {
+			// projection := bson.M{"products": 1, "_id": 0}
+			var something cart.GetCart
+			err = app.CartCollection.FindOne(
+				c,
+				bson.M{"_id": orderItem.Cart},
+				// options.FindOne().SetProjection(projection),
+			).Decode(&something)
+			if err != nil {
+				l.DebugF("Error: %v", err)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch cart"})
+				return
+			}
+			ordersDoc[i].Products = something.Products
+
+		}
+
 		count, err := app.OrderCollection.CountDocuments(c, filter)
 		if err != nil {
 			l.DebugF("Error: %v", err)
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Your request could not be processed. Please try again."})
 			return
 		}
-		orders := ordersDoc
 		c.JSON(http.StatusOK, gin.H{
-			"orders":      orders,
+			"orders":      ordersDoc,
 			"totalPages":  int(math.Ceil(float64(count) / float64(limitNum))),
 			"currentPage": pageNum,
 			"count":       count,
@@ -231,70 +273,150 @@ func FetchUserOrders(app *conf.Config) gin.HandlerFunc {
 
 func FetchOrder(app *conf.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		orderID := c.Param("orderId")
-		userRole := c.MustGet("role").(common.UserRole)
-		userID := c.MustGet("userID").(primitive.ObjectID)
-		var orderDoc Order
-		var err error
-		if userRole == common.RoleAdmin {
-			err = app.OrderCollection.FindOne(c, bson.M{"_id": orderID}).Decode(&orderDoc)
-		} else {
-			err = app.OrderCollection.FindOne(c, bson.M{"_id": orderID, "user": userID}).Decode(&orderDoc)
-		}
-		if err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"message": fmt.Sprintf("Cannot find order with the id: %s", orderID)})
-			return
-		}
-		var cartDoc cart.Cart
-		err = app.CartCollection.FindOne(c, bson.M{"_id": orderDoc.Cart}).Decode(&cartDoc)
+		orderIDString := c.Param("orderId")
+		orderID, err := primitive.ObjectIDFromHex(orderIDString)
 		if err != nil {
 			l.DebugF("Error: %v", err)
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid order ID"})
+			return
+		}
+
+		userRoleStr := c.MustGet("role").(string)
+		userRole := common.GetUserRole(userRoleStr)
+
+		userID, err := primitive.ObjectIDFromHex(c.MustGet("userID").(string))
+		if err != nil {
+			l.DebugF("Error: %v", err)
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
+			return
+		}
+		var orderDoc Order
+		if userRole == common.RoleAdmin {
+			err = app.OrderCollection.FindOne(c, bson.M{"_id": orderID}).Decode(&orderDoc)
+			if err != nil {
+				l.ErrorF("Error: %v", err)
+				c.JSON(http.StatusNotFound, gin.H{"message": fmt.Sprintf("Cannot find order with the id: %s", orderID)})
+				return
+			}
+		} else {
+			filter := bson.M{"_id": orderID, "user": userID}
+			l.InfoF("filter %#v", filter)
+			err = app.OrderCollection.FindOne(c, filter).Decode(&orderDoc)
+			if err != nil {
+				l.ErrorF("Error: %v", err)
+				l.InfoF("Order not found %s", userID)
+
+				c.JSON(http.StatusNotFound, gin.H{"message": fmt.Sprintf("Cannot find order with the id: %s", orderID)})
+				return
+			}
+		}
+		var cartDoc cart.GetCart
+		err = app.CartCollection.FindOne(c, bson.M{"_id": orderDoc.Cart}).Decode(&cartDoc)
+		if err != nil {
+			l.ErrorF("Error: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch cart"})
 			return
 		}
-		order := Order{
-			ID:      orderDoc.ID,
-			Total:   orderDoc.Total,
-			Created: orderDoc.Created,
-			// TotalTax:   0,
-			// Products: cartDoc.Products,
-			Cart:    orderDoc.Cart,
-			Address: orderDoc.Address,
+		// cartDoc.Products[0].Product
+		var cartItem []cart.CartItem
+		// var products []product.IndividualProduct
+		for _, orderItem := range cartDoc.Products {
+			var productDoc product.IndividualProduct
+			l.InfoF("orderItem.Product %s", orderItem.Product)
+			err = app.ProductCollection.FindOne(c, bson.M{"_id": orderItem.Product}).Decode(&productDoc)
+			if err != nil {
+				l.ErrorF("Error: %v", err)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch product"})
+				return
+			}
+			// products = append(products, productDoc)
+			cartItem = append(cartItem, cart.CartItem{
+				Product:       productDoc,
+				Quantity:      orderItem.Quantity,
+				PurchasePrice: orderItem.PurchasePrice,
+				TotalPrice:    orderItem.TotalPrice,
+				PriceWithTax:  orderItem.PriceWithTax,
+				TotalTax:      orderItem.TotalTax,
+				Status:        orderItem.Status,
+			})
 		}
+
+		orderData := OrderGet{
+			ID:       orderDoc.ID,
+			Cart:     orderDoc.Cart,
+			User:     orderDoc.User,
+			Total:    orderDoc.Total,
+			Updated:  orderDoc.Updated,
+			Created:  orderDoc.Created,
+			Address:  orderDoc.Address,
+			Products: cartItem,
+		}
+
 		// order = store.CalculateTaxAmount(order)
-		c.JSON(http.StatusOK, gin.H{"order": order})
+		c.JSON(http.StatusOK, gin.H{"order": orderData})
 	}
 }
 
 func CancelOrder(app *conf.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		orderID := c.Param("orderId")
-		userID := c.MustGet("userID").(primitive.ObjectID)
-		var orderDoc Order
-		err := app.OrderCollection.FindOne(c, bson.M{"_id": orderID, "user": userID}).Decode(&orderDoc)
-		if err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"message": fmt.Sprintf("Cannot find order with the id: %s", orderID)})
-			return
-		}
-		var cartDoc cart.Cart
-		err = app.CartCollection.FindOne(c, bson.M{"_id": orderDoc.Cart}).Decode(&cartDoc)
+		orderIDString := c.Param("orderId")
+		userID, err := primitive.ObjectIDFromHex(c.MustGet("userID").(string))
 		if err != nil {
 			l.DebugF("Error: %v", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch cart"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
 			return
 		}
-		// increaseQuantity(cartDoc.Products)
+		orderID, err := primitive.ObjectIDFromHex(orderIDString)
+		if err != nil {
+			l.DebugF("Error: %v", err)
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid order ID"})
+			return
+		}
 
-		_, err = app.OrderCollection.DeleteOne(c, bson.M{"_id": orderID})
+		session, err := app.MongoClient.StartSession()
 		if err != nil {
 			l.DebugF("Error: %v", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete order"})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to start session"})
 			return
 		}
-		_, err = app.CartCollection.DeleteOne(c, bson.M{"_id": orderDoc.Cart})
+		defer session.EndSession(c)
+
+		callback := func(sessCtx mongo.SessionContext) (interface{}, error) {
+			var orderDoc Order
+			filter := bson.M{"_id": orderID, "user": userID}
+			l.DebugF("Order filter: %#v", filter)
+			err = app.OrderCollection.FindOne(sessCtx, filter).Decode(&orderDoc)
+			if err != nil {
+				l.DebugF("Error finding order: %v", err)
+				return nil, fmt.Errorf("cannot find order with the id: %s", orderID)
+			}
+
+			var cartDoc cart.GetCart
+			err = app.CartCollection.FindOne(sessCtx, bson.M{"_id": orderDoc.Cart}).Decode(&cartDoc)
+			if err != nil {
+				l.DebugF("Error fetching cart: %v", err)
+				return nil, fmt.Errorf("failed to fetch cart")
+			}
+
+			_, err = app.OrderCollection.DeleteOne(sessCtx, bson.M{"_id": orderID})
+			if err != nil {
+				l.DebugF("Error deleting order: %v", err)
+				return nil, fmt.Errorf("failed to delete order")
+			}
+
+			_, err = app.CartCollection.DeleteOne(sessCtx, bson.M{"_id": orderDoc.Cart})
+			if err != nil {
+				l.DebugF("Error deleting cart: %v", err)
+				return nil, fmt.Errorf("failed to delete cart")
+			}
+
+			return nil, nil
+		}
+
+		_, err = session.WithTransaction(c, callback, options.Transaction())
 		if err != nil {
-			l.DebugF("Error: %v", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete cart"})
+			l.DebugF("Transaction error: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
 

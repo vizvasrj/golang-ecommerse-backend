@@ -1,6 +1,7 @@
 package order
 
 import (
+	"src/common"
 	"src/pkg/conf"
 	"src/pkg/middleware"
 
@@ -37,6 +38,7 @@ func SetupRoute(path string, r *gin.RouterGroup, app *conf.Config) {
 
 		order_route.PUT("/status/item/:itemId",
 			middleware.AuthMiddleware(app),
+			middleware.RoleCheck(common.RoleAdmin, common.RoleMerchant),
 			UpdateItemStatus(app))
 
 	}

@@ -3,7 +3,6 @@ package middleware
 import (
 	"net/http"
 	"src/common"
-	"src/l"
 
 	"github.com/gin-gonic/gin"
 )
@@ -16,7 +15,7 @@ func RoleCheck(allowedRoles ...common.UserRole) gin.HandlerFunc {
 			c.Abort()
 			return
 		}
-		l.DebugF("Role check: %#v", common.GetUserRole(role))
+		// l.DebugF("Role check: %#v", common.GetUserRole(role))
 		userRole := common.GetUserRole(role)
 		// if !ok {
 		// 	c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid role type"})

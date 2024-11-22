@@ -174,7 +174,6 @@ func FetchStoreProductsByFilters(app *conf.Config) gin.HandlerFunc {
 		// if err = productsCursor.All(c, &demo); err != nil {
 		// 	log.Println(err)
 
-		l.DebugF("Error: %v", err)
 		// 	c.JSON(http.StatusInternalServerError, gin.H{"error": "Your request could not be processed. Please try again."})
 		// 	return
 		// }
@@ -475,13 +474,15 @@ func FetchProduct(app *conf.Config) gin.HandlerFunc {
 
 func UpdateProduct(app *conf.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		userID, exists := c.MustGet("userID").(primitive.ObjectID)
-		if !exists {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		userID, err := primitive.ObjectIDFromHex(c.MustGet("userID").(string))
+		if err != nil {
+			l.DebugF("Error: %v", err)
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
 			return
 		}
 
-		userRole := c.MustGet("role").(common.UserRole)
+		userRoleStr := c.MustGet("role").(string)
+		userRole := common.GetUserRole(userRoleStr)
 
 		productId := c.Param("id")
 		objectId, err := primitive.ObjectIDFromHex(productId)
@@ -541,17 +542,15 @@ func UpdateProduct(app *conf.Config) gin.HandlerFunc {
 
 func UpdateProductStatus(app *conf.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		userID, exists := c.MustGet("userID").(primitive.ObjectID)
-		if !exists {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		userID, err := primitive.ObjectIDFromHex(c.MustGet("userID").(string))
+		if err != nil {
+			l.DebugF("Error: %v", err)
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
 			return
 		}
 
-		userRole, exists := c.MustGet("role").(common.UserRole)
-		if !exists {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "failed to get user role"})
-			return
-		}
+		userRoleStr := c.MustGet("role").(string)
+		userRole := common.GetUserRole(userRoleStr)
 
 		productId := c.Param("id")
 		objectId, err := primitive.ObjectIDFromHex(productId)
@@ -600,17 +599,15 @@ func UpdateProductStatus(app *conf.Config) gin.HandlerFunc {
 
 func DeleteProduct(app *conf.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		userID, exists := c.MustGet("userID").(primitive.ObjectID)
-		if !exists {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		userID, err := primitive.ObjectIDFromHex(c.MustGet("userID").(string))
+		if err != nil {
+			l.DebugF("Error: %v", err)
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
 			return
 		}
 
-		userRole, exists := c.MustGet("role").(common.UserRole)
-		if !exists {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "Failed to get user role"})
-			return
-		}
+		userRoleStr := c.MustGet("role").(string)
+		userRole := common.GetUserRole(userRoleStr)
 
 		productId := c.Param("id")
 		objectId, err := primitive.ObjectIDFromHex(productId)

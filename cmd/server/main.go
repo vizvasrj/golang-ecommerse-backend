@@ -12,6 +12,7 @@ import (
 	"src/pkg/module/category"
 	"src/pkg/module/order"
 	"src/pkg/module/product"
+	"src/pkg/module/review"
 	"src/pkg/module/user"
 	"strings"
 	"time"
@@ -59,6 +60,7 @@ func main() {
 
 		Env:           envs,
 		TokenLifetime: 24,
+		MongoClient:   clinet,
 	}
 
 	// Start the server
@@ -85,6 +87,7 @@ func main() {
 		category.SetupRoute("/category", r, config)
 		cart.SetupRoute("/cart", r, config)
 		order.SetupRoute("/order", r, config)
+		review.SetupRouter("/review", r, config)
 	}
 
 	router.Run(":3000")

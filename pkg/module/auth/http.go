@@ -7,15 +7,16 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"src/common"
 	"src/l"
 	"src/pkg/conf"
 	"src/pkg/middleware"
 	"src/pkg/module/user"
 	"time"
 
-	"github.com/dgrijalva/jwt-go"
 	"github.com/gin-gonic/gin"
 	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"golang.org/x/crypto/bcrypt"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
@@ -56,11 +57,11 @@ func Login(app *conf.Config) gin.HandlerFunc {
 			return
 		}
 
-		if logedInUser.Provider != user.EmailProviderEmail {
-			l.DebugF("Error: %v", err)
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Email address is already in use with another provider"})
-			return
-		}
+		// if logedInUser.Provider != user.EmailProviderEmail {
+		// 	l.DebugF("Error: %v", err)
+		// 	c.JSON(http.StatusBadRequest, gin.H{"error": "Email address is already in use with another provider"})
+		// 	return
+		// }
 
 		err = bcrypt.CompareHashAndPassword([]byte(logedInUser.Password), []byte(req.Password))
 		if err != nil {
@@ -419,9 +420,11 @@ func GoogleLogin(app *conf.Config) gin.HandlerFunc {
 
 func GoogleCallback(app *conf.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		l.InfoF("i get it here.\n")
 		code := c.Query("code")
 		token, err := oauthConfig.Exchange(c, code)
 		if err != nil {
+			l.ErrorF("Error: %v", err)
 			c.Redirect(http.StatusTemporaryRedirect, app.Env.ClientURL+"/login")
 			return
 		}
@@ -429,28 +432,71 @@ func GoogleCallback(app *conf.Config) gin.HandlerFunc {
 		client := oauthConfig.Client(c, token)
 		resp, err := client.Get("https://www.googleapis.com/oauth2/v2/userinfo")
 		if err != nil {
+			l.ErrorF("Error: %v", err)
 			c.Redirect(http.StatusTemporaryRedirect, app.Env.ClientURL+"/login")
 			return
 		}
 		defer resp.Body.Close()
 
 		// Parse user info from response
-		var userInfo struct {
-			ID    string `json:"id"`
-			Email string `json:"email"`
-		}
+		// var userInfo InsertUserFromGmail	 {
+		// 	ID    string `json:"id"`
+		// 	Email string `json:"email"`
+		// }
+		var userInfo user.InsertUserFromGmail
 		if err := json.NewDecoder(resp.Body).Decode(&userInfo); err != nil {
+			l.ErrorF("Error: %v", err)
 			c.Redirect(http.StatusTemporaryRedirect, app.Env.ClientURL+"/login")
 			return
 		}
+		// l.DebugF("User info: %#v\n", userInfo)
+
+		// find user in db
+		var dbUser user.User
+		err = app.UserCollection.FindOne(c, bson.M{"email": userInfo.Email}).Decode(&dbUser)
+		if err != nil {
+			// create user
+
+			insertUser := user.User{
+				Email:     userInfo.Email,
+				Provider:  user.EmailProviderGoogle,
+				Created:   time.Now(),
+				Updated:   time.Now(),
+				FirstName: userInfo.GivenName,
+				LastName:  userInfo.FamilyName,
+				Role:      common.RoleMember,
+			}
+			insertResult, err := app.UserCollection.InsertOne(c, insertUser)
+			if err != nil {
+				l.ErrorF("Error: %v", err)
+				c.Redirect(http.StatusTemporaryRedirect, app.Env.ClientURL+"/login")
+				return
+			}
+			err = app.UserCollection.FindOne(c, bson.M{"_id": insertResult.InsertedID}).Decode(&dbUser)
+			if err != nil {
+				l.ErrorF("Error: %v", err)
+				c.Redirect(http.StatusTemporaryRedirect, app.Env.ClientURL+"/login")
+				return
+			}
+
+		}
 
 		// Generate JWT token
-		payload := jwt.MapClaims{
-			"id":  userInfo.ID,
-			"exp": time.Now().Add(app.TokenLifetime).Unix(),
+		var merchantID string
+		if dbUser.Merchant != primitive.NilObjectID {
+			merchantID = dbUser.Merchant.Hex()
 		}
-		tokenString, err := jwt.NewWithClaims(jwt.SigningMethodHS256, payload).SignedString(app.Env.SecretJWT)
+		sData := middleware.SignedDetails{
+			Uid:        dbUser.ID.Hex(),
+			Email:      dbUser.Email,
+			FirstName:  dbUser.FirstName,
+			LastName:   dbUser.LastName,
+			Role:       dbUser.Role,
+			MerchantID: merchantID,
+		}
+		tokenString, _, err := middleware.GenerateTokens(app, sData)
 		if err != nil {
+			l.ErrorF("Error: %v", err)
 			c.Redirect(http.StatusTemporaryRedirect, app.Env.ClientURL+"/login")
 			return
 		}

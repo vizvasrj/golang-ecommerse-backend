@@ -20,7 +20,7 @@ func SetupRoute(path string, r *gin.RouterGroup, app *conf.Config) {
 
 		cart_route.POST("/add/:cartId",
 			middleware.AuthMiddleware(app),
-			AddToCart(app))
+			AddProductToCart(app))
 
 		cart_route.DELETE("/delete/:cartId/:productId",
 			middleware.AuthMiddleware(app),

@@ -18,7 +18,9 @@ import (
 func SearchUsers(app *conf.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// Check if the user is authenticated and has the Admin role
-		userRole := c.MustGet("role").(common.UserRole)
+		userRoleStr := c.MustGet("role").(string)
+		userRole := common.GetUserRole(userRoleStr)
+
 		if userRole != common.RoleAdmin {
 			c.JSON(http.StatusForbidden, gin.H{"error": "Forbidden"})
 			return

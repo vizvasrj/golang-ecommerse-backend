@@ -2,7 +2,6 @@ package middleware
 
 import (
 	"net/http"
-	"src/l"
 	"src/pkg/conf"
 	"strings"
 
@@ -27,7 +26,7 @@ func AuthMiddleware(app *conf.Config) gin.HandlerFunc {
 			return
 		}
 
-		l.DebugF("claims %#v", claims)
+		// l.DebugF("claims %#v", claims)
 
 		c.Set("userID", claims.Uid)
 		c.Set("role", claims.Role)

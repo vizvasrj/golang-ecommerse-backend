@@ -22,10 +22,5 @@ type Config struct {
 	CategoryCollection *mongo.Collection
 	Env                *env.Env
 	TokenLifetime      time.Duration
+	MongoClient        *mongo.Client
 }
-
-// type Module struct {
-// 	Address address.Address
-// 	User    user.User
-
-// }

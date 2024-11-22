@@ -61,3 +61,13 @@ type UserUpdate struct {
 }
 
 // merchant model
+
+type InsertUserFromGmail struct {
+	Email         string `bson:"email" json:"email"`
+	FamilyName    string `bson:"family_name" json:"family_name"`
+	GivenName     string `bson:"given_name" json:"given_name"`
+	GoogleID      string `bson:"id" json:"id"`
+	Name          string `bson:"name" json:"name"`
+	Picture       string `bson:"picture" json:"picture"`
+	VerifiedEmail bool   `bson:"verified_email" json:"verified_email"`
+}

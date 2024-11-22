@@ -3,7 +3,7 @@ package middleware
 import (
 	"errors"
 	"fmt"
-	"log"
+	"src/l"
 	"src/pkg/conf"
 	"time"
 
@@ -60,6 +60,7 @@ func GenerateTokens(app *conf.Config, data SignedDetails) (token string, refresh
 }
 
 func ValidateToken(app *conf.Config, signedToken string) (claims *SignedDetails, err error) {
+	// l.InfoF("token %s", signedToken)
 	token, err := jwt.ParseWithClaims(
 		signedToken,
 		&SignedDetails{},
@@ -68,8 +69,8 @@ func ValidateToken(app *conf.Config, signedToken string) (claims *SignedDetails,
 		},
 	)
 	if err != nil {
-		log.Println(err)
-		return nil, err
+		l.Debug(err.Error())
+		return nil, errors.New("the token in invalid")
 	}
 
 	claims, ok := token.Claims.(*SignedDetails)
