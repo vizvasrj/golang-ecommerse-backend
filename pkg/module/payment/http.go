@@ -34,8 +34,6 @@ func CreatePGLink() (*cashfree.LinkEntity, error) {
 		cashfree.XEnvironment = cashfree.SANDBOX
 	}
 
-	// clientId := "TEST398677585a4c6083742542a53d776893"
-	// clientSecret := "TEST679577dfe41dc2c61d371bb44ede411fb69c185f"
 	cashfree.XClientId = &clientId
 	cashfree.XClientSecret = &clientSecret
 	cashfree.XEnvironment = cashfree.SANDBOX
@@ -82,8 +80,8 @@ type OrderDetail struct {
 }
 
 func createOrder(order OrderDetail) (*cashfree.OrderEntity, error) {
-	clientId := "TEST398677585a4c6083742542a53d776893"
-	clientSecret := "TEST679577dfe41dc2c61d371bb44ede411fb69c185f"
+	clientId := os.Getenv("CASHFREE_APP_ID")
+	clientSecret := os.Getenv("CASHFREE_SECRET_KEY")
 	cashfree.XClientId = &clientId
 	cashfree.XClientSecret = &clientSecret
 	cashfree.XEnvironment = cashfree.SANDBOX
@@ -114,9 +112,3 @@ func createOrder(order OrderDetail) (*cashfree.OrderEntity, error) {
 	}
 	return response, nil
 }
-
-// func CreateOrderPayment(app *conf.Config) gin.HandlerFunc {
-// 	return func(c *gin.Context) {
-// 		var order D
-// 	}
-// }
