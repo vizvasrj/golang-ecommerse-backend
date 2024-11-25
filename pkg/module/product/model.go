@@ -56,4 +56,5 @@ type IndividualProduct struct {
 	Updated     time.Time          `bson:"updated,omitempty" json:"updated,omitempty"`
 	Created     time.Time          `bson:"created,omitempty" json:"created,omitempty"`
 	Merchant    primitive.ObjectID `bson:"merchant,omitempty" json:"merchant,omitempty"`
+	TotalPrice  float64            `bson:"totalPrice,omitempty" json:"totalPrice,omitempty"`
 }

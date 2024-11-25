@@ -22,9 +22,15 @@ func SetupRoute(path string, r *gin.RouterGroup, app *conf.Config) {
 			middleware.AuthMiddleware(app),
 			AddProductToCart(app))
 
+		cart_route.POST("/add_or_update",
+			middleware.AuthOrNotMiddleware(app),
+			AddProductToCartV2(app))
+
 		cart_route.DELETE("/delete/:cartId/:productId",
 			middleware.AuthMiddleware(app),
 			RemoveProductFromCart(app))
+
+		cart_route.GET("/:cartId", GetCartByCartID(app))
 
 	}
 }
