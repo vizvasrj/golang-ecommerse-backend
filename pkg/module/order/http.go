@@ -4,12 +4,16 @@ import (
 	"fmt"
 	"math"
 	"net/http"
+	"os"
 	"src/common"
 	"src/l"
 	"src/pkg/conf"
+	"src/pkg/module/address"
 	"src/pkg/module/cart"
+	"src/pkg/module/payment"
 	"src/pkg/module/product"
 	"strconv"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"go.mongodb.org/mongo-driver/bson"
@@ -79,6 +83,115 @@ func AddOrder(app *conf.Config) gin.HandlerFunc {
 			"success": true,
 			"message": "Your order has been placed successfully!",
 			"order":   gin.H{"_id": orderDoc.InsertedID},
+		})
+	}
+}
+
+// add order but new feature like calculating price and total
+func AddOrderWithCartItemAndAddress(app *conf.Config) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req struct {
+			CartID  primitive.ObjectID `json:"cartId"`
+			Address Address            `json:"address"`
+		}
+
+		if err := c.ShouldBindJSON(&req); err != nil {
+			l.DebugF("Error: %v", err)
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
+			return
+		}
+
+		userID, err := primitive.ObjectIDFromHex(c.MustGet("userID").(string))
+		if err != nil {
+			l.DebugF("Error: %v", err)
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
+			return
+		}
+
+		// calculate total cost of cart
+		var cartdoc cart.GetCart
+		err = app.CartCollection.FindOne(c, bson.M{"_id": req.CartID, "user": userID}).Decode(&cartdoc)
+		if err != nil {
+			l.DebugF("Error: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch cart"})
+			return
+		}
+
+		// *for debug in need not to create lot of receipt
+
+		total := 0.0
+
+		for _, item := range cartdoc.Products {
+			var priceStruct = struct {
+				Price float64 `json:"price" bson:"price"`
+			}{}
+			var projection = bson.M{"price": 1, "_id": 0}
+			err = app.ProductCollection.FindOne(c, bson.M{"_id": item.Product}, options.FindOne().SetProjection(projection)).Decode(&priceStruct)
+			if err != nil {
+				l.DebugF("Error: %v", err)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch product"})
+				return
+			}
+			l.DebugF("Price: %v", priceStruct.Price)
+			total += priceStruct.Price * float64(item.Quantity)
+
+		}
+		l.DebugF("Total: %v", total)
+		var addressDoc address.Address
+		err = app.AddressCollection.FindOne(c, bson.M{"_id": req.Address.ID, "user": req.Address.User}).Decode(&addressDoc)
+		if err != nil {
+			l.DebugF("Error: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch address"})
+			return
+		}
+		newOrder := newOrder{
+			UserID:  userID,
+			CartID:  req.CartID,
+			Total:   total,
+			Address: addressDoc,
+			Created: time.Now().In(time.FixedZone("UTC+5:30", 19800)),
+		}
+		insertData, err := app.OrderCollection.InsertOne(c, newOrder)
+		if err != nil {
+			l.DebugF("Error: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to place order"})
+			return
+		}
+		newRecitId := primitive.NewObjectID()
+		razorpayOrderID, err := payment.Executerazorpay(total, newRecitId, insertData.InsertedID.(primitive.ObjectID).Hex())
+		if err != nil {
+			l.DebugF("Error: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to place order"})
+			return
+		}
+		razorpay_id := os.Getenv("RAZORPAY_ID")
+		location, _ := time.LoadLocation("Asia/Kolkata")
+
+		newRecit := payment.Receipt{
+			ID:              newRecitId,
+			OrderID:         insertData.InsertedID.(primitive.ObjectID),
+			RazorpayOrderID: razorpayOrderID,
+			Amount:          total,
+
+			Created:         time.Now().In(location),
+			Updated:         time.Now().In(location),
+			PaymentProvider: "razorpay",
+		}
+		_, err = app.ReceiptCollection.InsertOne(c, newRecit)
+		if err != nil {
+			l.DebugF("Error: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to place order"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{
+			"success": true,
+			"message": "Your order has been placed successfully!",
+			"order": gin.H{
+				"_id":    insertData.InsertedID,
+				"amount": total * 100,
+			},
+			"razorpayOrderID": razorpayOrderID,
+			"razorpayId":      razorpay_id,
 		})
 	}
 }

@@ -14,7 +14,7 @@ func SetupRoute(path string, r *gin.RouterGroup, app *conf.Config) {
 	{
 		order_route.POST("/add",
 			middleware.AuthMiddleware(app),
-			AddOrder(app))
+			AddOrderWithCartItemAndAddress(app))
 
 		order_route.GET("/search",
 			middleware.AuthMiddleware(app),

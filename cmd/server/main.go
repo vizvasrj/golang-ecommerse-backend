@@ -11,6 +11,7 @@ import (
 	"src/pkg/module/cart"
 	"src/pkg/module/category"
 	"src/pkg/module/order"
+	"src/pkg/module/payment"
 	"src/pkg/module/product"
 	"src/pkg/module/review"
 	"src/pkg/module/user"
@@ -44,6 +45,7 @@ func main() {
 	UserCollection := db.GetCollection(clinet, envs.DBName, "users")
 	MerchantCollection := db.GetCollection(clinet, envs.DBName, "merchants")
 	CategoryCollection := db.GetCollection(clinet, envs.DBName, "categories")
+	ReceiptCollection := db.GetCollection(clinet, envs.DBName, "receipts")
 	config := &conf.Config{
 		// ContactCollection:  ContactCollection,
 		DB:                 clinet,
@@ -57,6 +59,7 @@ func main() {
 		UserCollection:     UserCollection,
 		MerchantCollection: MerchantCollection,
 		CategoryCollection: CategoryCollection,
+		ReceiptCollection:  ReceiptCollection,
 
 		Env:           envs,
 		TokenLifetime: 24,
@@ -88,6 +91,7 @@ func main() {
 		cart.SetupRoute("/cart", r, config)
 		order.SetupRoute("/order", r, config)
 		review.SetupRouter("/review", r, config)
+		payment.SetupRouter("/payment", r, config)
 	}
 
 	router.Run(":3000")

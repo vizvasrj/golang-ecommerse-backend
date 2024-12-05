@@ -20,6 +20,7 @@ type Config struct {
 	UserCollection     *mongo.Collection
 	MerchantCollection *mongo.Collection
 	CategoryCollection *mongo.Collection
+	ReceiptCollection  *mongo.Collection
 	Env                *env.Env
 	TokenLifetime      time.Duration
 	MongoClient        *mongo.Client

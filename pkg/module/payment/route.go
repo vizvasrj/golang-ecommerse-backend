@@ -7,9 +7,9 @@ import (
 )
 
 func SetupRouter(path string, r *gin.RouterGroup, app *conf.Config) {
-	// _ := r.Group(path)
-	// {
-	// 	// product_route.GET("/item/:slug", GetProductBySlug(app))
-	// }
+	paymentRoute := r.Group(path)
+	{
+		paymentRoute.POST("/webhook", handleRazorPayWebhook(app))
+	}
 
 }

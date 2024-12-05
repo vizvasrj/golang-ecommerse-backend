@@ -259,7 +259,7 @@ func AddProductToCartV2(app *conf.Config) gin.HandlerFunc {
 
 func extractCartID(c *gin.Context) (primitive.ObjectID, error) {
 	cartIDhex := c.Query("cartId")
-	if cartIDhex == "" {
+	if cartIDhex == "" || cartIDhex == "null" {
 		return primitive.NilObjectID, nil // No cart ID provided
 	}
 	return primitive.ObjectIDFromHex(cartIDhex)

@@ -1,6 +1,7 @@
 package order
 
 import (
+	"src/pkg/module/address"
 	"src/pkg/module/cart"
 	"time"
 
@@ -47,4 +48,13 @@ type OrderGet struct {
 	Created  time.Time          `bson:"created,omitempty" json:"created,omitempty"`
 	Address  Address            `bson:"address,omitempty" json:"address,omitempty"`
 	Products []cart.CartItem    `bson:"products,omitempty" json:"products,omitempty"`
+}
+
+// uses in order add new api
+type newOrder struct {
+	UserID  primitive.ObjectID `json:"userId"`
+	CartID  primitive.ObjectID `json:"cartId"`
+	Total   float64            `json:"total"`
+	Address address.Address    `json:"address"`
+	Created time.Time          `json:"created"`
 }
