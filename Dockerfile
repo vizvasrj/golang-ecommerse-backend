@@ -17,16 +17,16 @@ COPY . .
 RUN go build -o server cmd/server/main.go
 
 # Use a minimal base image to reduce the size of the final image
-FROM alpine:latest
+RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o server cmd/server/main.go
 
-RUN apk --no-cache add ca-certificates
-
+# Use a minimal base image to reduce the size of the final image
+FROM scratch
 
 # Copy the binary from the builder stage
 COPY --from=builder /app/server /server
 
 # Expose port 8080 to the outside world
-EXPOSE 3000
+EXPOSE 8080
 
 # Command to run the executable
 CMD ["/server"]
