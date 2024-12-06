@@ -17,7 +17,10 @@ COPY . .
 RUN go build -o server cmd/server/main.go
 
 # Use a minimal base image to reduce the size of the final image
-FROM gcr.io/distroless/base-debian10
+FROM alpine:latest
+
+RUN apk --no-cache add ca-certificates
+
 
 # Copy the binary from the builder stage
 COPY --from=builder /app/server /server
