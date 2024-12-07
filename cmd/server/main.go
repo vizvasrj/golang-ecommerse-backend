@@ -82,8 +82,8 @@ func main() {
 	r := router.Group("/api")
 	r.GET("/ping", func(c *gin.Context) {
 		c.JSON(200, gin.H{
-			"message":   "pong",
-			"clientUrl": os.Getenv("CLIENT_URL"),
+			"message":            "pong",
+			"google redirec url": os.Getenv("GOOGLE_REDIRECT_URL"),
 		})
 	})
 	{
