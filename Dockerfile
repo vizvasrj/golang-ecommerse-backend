@@ -14,7 +14,7 @@ RUN go mod download
 COPY . .
 
 # Build the Go app
-RUN go build -o server cmd/server/main.go
+# RUN go build -o server cmd/server/main.go
 
 # Use a minimal base image to reduce the size of the final image
 RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o server cmd/server/main.go
