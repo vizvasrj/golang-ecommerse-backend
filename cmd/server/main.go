@@ -79,6 +79,11 @@ func main() {
 	}))
 
 	r := router.Group("/api")
+	r.GET("/ping", func(c *gin.Context) {
+		c.JSON(200, gin.H{
+			"message": "pong",
+		})
+	})
 	{
 
 		auth.SetupRouter("/auth", r, config)
