@@ -11,8 +11,9 @@ import (
 // InitializeMongoDB initializes the MongoDB client
 func InitializeMongoDB(uri string) (*mongo.Client, error) {
 	ctx := context.Background()
+	serverAPI := options.ServerAPI(options.ServerAPIVersion1)
 
-	clientOptions := options.Client().ApplyURI(uri)
+	clientOptions := options.Client().ApplyURI(uri).SetServerAPIOptions(serverAPI)
 	client, err := mongo.Connect(ctx, clientOptions)
 	if err != nil {
 		return nil, err
