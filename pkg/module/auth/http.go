@@ -27,9 +27,10 @@ import (
 var oauthConfig = &oauth2.Config{
 	ClientID:     os.Getenv("GOOGLE_CLIENT_ID"),
 	ClientSecret: os.Getenv("GOOGLE_CLIENT_SECRET"),
-	RedirectURL:  os.Getenv("GOOGLE_REDIRECT_URL"),
-	Scopes:       []string{"https://www.googleapis.com/auth/userinfo.profile", "https://www.googleapis.com/auth/userinfo.email"},
-	Endpoint:     google.Endpoint,
+	RedirectURL:  "https://backend.aapan.shop/api/auth/google/callback",
+	// RedirectURL:  os.Getenv("GOOGLE_REDIRECT_URL"),
+	Scopes:   []string{"https://www.googleapis.com/auth/userinfo.profile", "https://www.googleapis.com/auth/userinfo.email"},
+	Endpoint: google.Endpoint,
 }
 
 func Login(app *conf.Config) gin.HandlerFunc {
