@@ -26,12 +26,12 @@ func main() {
 	log.SetFlags(log.LstdFlags | log.Llongfile)
 	envs, err := env.GetEnv()
 	if err != nil {
-		panic(err)
+		log.Fatalln(err)
 	}
 
 	clinet, err := db.InitializeMongoDB(envs.DBUri)
 	if err != nil {
-		panic(err)
+		log.Fatalln(err)
 	}
 
 	AddressCollection := db.GetCollection(clinet, envs.DBName, "addresses")
