@@ -2,6 +2,7 @@ package main
 
 import (
 	"log"
+	"os"
 	"src/pkg/conf"
 	"src/pkg/db"
 	"src/pkg/env"
@@ -81,7 +82,8 @@ func main() {
 	r := router.Group("/api")
 	r.GET("/ping", func(c *gin.Context) {
 		c.JSON(200, gin.H{
-			"message": "pong",
+			"message":   "pong",
+			"clientUrl": os.Getenv("CLIENT_URL"),
 		})
 	})
 	{
