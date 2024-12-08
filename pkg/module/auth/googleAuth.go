@@ -3,8 +3,6 @@ package auth
 import (
 	"encoding/json"
 	"net/http"
-	"net/url"
-	"os"
 	"src/common"
 	"src/l"
 	"src/pkg/conf"
@@ -23,35 +21,6 @@ func GoogleLogin(app *conf.Config) gin.HandlerFunc {
 		url := oauthConfig.AuthCodeURL("state", oauth2.AccessTypeOffline)
 		c.Redirect(http.StatusTemporaryRedirect, url)
 	}
-}
-
-func exchangeCodeForToken(code string) (string, error) {
-	clientID := os.Getenv("GOOGLE_CLIENT_ID")
-	clientSecret := os.Getenv("GOOGLE_CLIENT_SECRET")
-	redirectURI := os.Getenv("GOOGLE_REDIRECT_URI")
-	grantType := "authorization_code"
-
-	data := url.Values{}
-	data.Set("code", code)
-	data.Set("client_id", clientID)
-	data.Set("client_secret", clientSecret)
-	data.Set("redirect_uri", redirectURI)
-	data.Set("grant_type", grantType)
-
-	resp, err := http.PostForm("https://oauth2.googleapis.com/token", data)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-
-	tokens := make(map[string]interface{})
-	err = json.NewDecoder(resp.Body).Decode(&tokens)
-	if err != nil {
-		return "", err
-	}
-	l.DebugF("token came from google: %#v", tokens)
-
-	return tokens["token"].(string), nil
 }
 
 func GoogleCallback(app *conf.Config) gin.HandlerFunc {
@@ -156,15 +125,9 @@ func GoogleCallbackPOST(app *conf.Config) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
 			return
 		}
-		t, err := exchangeCodeForToken(codeDoc.Code)
-		if err != nil {
-			l.ErrorF("Error: %v", err)
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
-			// c.Redirect(http.StatusTemporaryRedirect, app.Env.ClientURL+"/login")
-			return
-		}
+
 		l.DebugF("Code: %#v\n", codeDoc.Code)
-		l.DebugF("Token %s", t)
+
 		token, err := oauthConfig.Exchange(c, codeDoc.Code)
 		if err != nil {
 			l.ErrorF("Error: %v", err)
