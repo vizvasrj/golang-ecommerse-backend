@@ -3,6 +3,7 @@ package auth
 import (
 	"encoding/json"
 	"net/http"
+	"os"
 	"src/common"
 	"src/l"
 	"src/pkg/conf"
@@ -14,7 +15,16 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"golang.org/x/oauth2"
+	"golang.org/x/oauth2/google"
 )
+
+var oauthConfig = &oauth2.Config{
+	ClientID:     os.Getenv("GOOGLE_CLIENT_ID"),
+	ClientSecret: os.Getenv("GOOGLE_CLIENT_SECRET"),
+	RedirectURL:  "postmessage",
+	Scopes:       []string{"https://www.googleapis.com/auth/userinfo.profile", "https://www.googleapis.com/auth/userinfo.email"},
+	Endpoint:     google.Endpoint,
+}
 
 func GoogleLogin(app *conf.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -38,6 +48,7 @@ func GoogleCallback(app *conf.Config) gin.HandlerFunc {
 		resp, err := client.Get("https://www.googleapis.com/oauth2/v2/userinfo")
 		if err != nil {
 			l.ErrorF("Error: %v", err)
+			l.DebugF("%s %s %s", os.Getenv("GOOGLE_CLIENT_ID"), os.Getenv("GOOGLE_CLIENT_SECRET"), os.Getenv("GOOGLE_REDIRECT_URL"))
 			c.Redirect(http.StatusTemporaryRedirect, app.Env.ClientURL+"/login")
 			return
 		}
@@ -131,6 +142,8 @@ func GoogleCallbackPOST(app *conf.Config) gin.HandlerFunc {
 		token, err := oauthConfig.Exchange(c, codeDoc.Code)
 		if err != nil {
 			l.ErrorF("Error: %v", err)
+			l.DebugF("%s %s %s", os.Getenv("GOOGLE_CLIENT_ID"), os.Getenv("GOOGLE_CLIENT_SECRET"), os.Getenv("GOOGLE_REDIRECT_URL"))
+
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
 			// c.Redirect(http.StatusTemporaryRedirect, app.Env.ClientURL+"/login")
 			return

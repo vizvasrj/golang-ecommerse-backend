@@ -1,6 +1,7 @@
 package conf
 
 import (
+	"database/sql"
 	"src/pkg/env"
 	"time"
 
@@ -8,7 +9,7 @@ import (
 )
 
 type Config struct {
-	DB                 *mongo.Client
+	MongoDB            *mongo.Client
 	AddressCollection  *mongo.Collection
 	CartCollection     *mongo.Collection
 	ContactCollection  *mongo.Collection
@@ -24,4 +25,5 @@ type Config struct {
 	Env                *env.Env
 	TokenLifetime      time.Duration
 	MongoClient        *mongo.Client
+	DB                 *sql.DB
 }

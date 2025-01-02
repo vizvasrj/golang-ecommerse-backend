@@ -6,16 +6,17 @@ import (
 	"src/pkg/conf"
 	"src/pkg/db"
 	"src/pkg/env"
-	"src/pkg/module/address"
-	"src/pkg/module/auth"
-	"src/pkg/module/brand"
-	"src/pkg/module/cart"
-	"src/pkg/module/category"
-	"src/pkg/module/order"
+	address "src/pkg/module/address_2"
+	auth "src/pkg/module/auth_2"
+	brand "src/pkg/module/brand_2"
+	cart "src/pkg/module/cart_2"
+	category "src/pkg/module/category_2"
+	"src/pkg/module/merchant"
+	order "src/pkg/module/order_2"
 	"src/pkg/module/payment"
-	"src/pkg/module/product"
-	"src/pkg/module/review"
-	"src/pkg/module/user"
+	product "src/pkg/module/product_2"
+	review "src/pkg/module/review_2"
+	user "src/pkg/module/user_2"
 	"strings"
 	"time"
 
@@ -30,41 +31,43 @@ func main() {
 		log.Fatalln(err)
 	}
 
-	clinet, err := db.InitializeMongoDB(envs.DBUri)
-	if err != nil {
-		log.Fatalln(err)
-	}
+	// clinet, err := db.InitializeMongoDB(envs.DBUri)
+	// if err != nil {
+	// 	log.Fatalln(err)
+	// }
 
-	AddressCollection := db.GetCollection(clinet, envs.DBName, "addresses")
-	CartCollection := db.GetCollection(clinet, envs.DBName, "carts")
-	// ContactCollection := db.GetCollection(clinet, envs.DBName, "contact")
-	WishlistCollection := db.GetCollection(clinet, envs.DBName, "wishlists")
-	BrandCollection := db.GetCollection(clinet, envs.DBName, "brands")
-	ProductCollection := db.GetCollection(clinet, envs.DBName, "products")
-	OrderCollection := db.GetCollection(clinet, envs.DBName, "orders")
-	ReviewCollection := db.GetCollection(clinet, envs.DBName, "reviews")
-	UserCollection := db.GetCollection(clinet, envs.DBName, "users")
-	MerchantCollection := db.GetCollection(clinet, envs.DBName, "merchants")
-	CategoryCollection := db.GetCollection(clinet, envs.DBName, "categories")
-	ReceiptCollection := db.GetCollection(clinet, envs.DBName, "receipts")
+	// AddressCollection := db.GetCollection(clinet, envs.DBName, "addresses")
+	// CartCollection := db.GetCollection(clinet, envs.DBName, "carts")
+	// // ContactCollection := db.GetCollection(clinet, envs.DBName, "contact")
+	// WishlistCollection := db.GetCollection(clinet, envs.DBName, "wishlists")
+	// BrandCollection := db.GetCollection(clinet, envs.DBName, "brands")
+	// ProductCollection := db.GetCollection(clinet, envs.DBName, "products")
+	// OrderCollection := db.GetCollection(clinet, envs.DBName, "orders")
+	// ReviewCollection := db.GetCollection(clinet, envs.DBName, "reviews")
+	// UserCollection := db.GetCollection(clinet, envs.DBName, "users")
+	// MerchantCollection := db.GetCollection(clinet, envs.DBName, "merchants")
+	// CategoryCollection := db.GetCollection(clinet, envs.DBName, "categories")
+	// ReceiptCollection := db.GetCollection(clinet, envs.DBName, "receipts")
+	pgDb := db.InitializePostgresDB()
 	config := &conf.Config{
 		// ContactCollection:  ContactCollection,
-		DB:                 clinet,
-		AddressCollection:  AddressCollection,
-		CartCollection:     CartCollection,
-		WishlistCollection: WishlistCollection,
-		BrandCollection:    BrandCollection,
-		ProductCollection:  ProductCollection,
-		OrderCollection:    OrderCollection,
-		ReviewCollection:   ReviewCollection,
-		UserCollection:     UserCollection,
-		MerchantCollection: MerchantCollection,
-		CategoryCollection: CategoryCollection,
-		ReceiptCollection:  ReceiptCollection,
+		// MongoDB:            clinet,
+		// AddressCollection:  AddressCollection,
+		// CartCollection:     CartCollection,
+		// WishlistCollection: WishlistCollection,
+		// BrandCollection:    BrandCollection,
+		// ProductCollection:  ProductCollection,
+		// OrderCollection:    OrderCollection,
+		// ReviewCollection:   ReviewCollection,
+		// UserCollection:     UserCollection,
+		// MerchantCollection: MerchantCollection,
+		// CategoryCollection: CategoryCollection,
+		// ReceiptCollection:  ReceiptCollection,
+		DB: pgDb,
 
 		Env:           envs,
 		TokenLifetime: 24,
-		MongoClient:   clinet,
+		// MongoClient:   clinet,
 	}
 
 	// Start the server
@@ -93,7 +96,7 @@ func main() {
 		brand.SetupRouter("/brand", r, config)
 		product.SetupRouter("/product", r, config)
 		user.SetupRouter("/user", r, config)
-		user.SetupRouter_Merchant("/merchant", r, config)
+		merchant.SetupRouter("/merchant", r, config)
 		category.SetupRoute("/category", r, config)
 		cart.SetupRoute("/cart", r, config)
 		order.SetupRoute("/order", r, config)

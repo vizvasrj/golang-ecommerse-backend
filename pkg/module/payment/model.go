@@ -68,7 +68,7 @@ type RazorpayWebhookEntity struct {
 					Rrn              string `json:"rrn"`
 					UpiTransactionID string `json:"upi_transaction_id"`
 				} `json:"acquirer_data"`
-				CreatedAt int         `json:"created_at"`
+				CreatedAt int         `json:"created"`
 				Reward    interface{} `json:"reward"`
 				Upi       struct {
 					Vpa string `json:"vpa"`
@@ -77,7 +77,7 @@ type RazorpayWebhookEntity struct {
 			} `json:"entity"`
 		} `json:"payment"`
 	} `json:"payload"`
-	CreatedAt int `json:"created_at"`
+	CreatedAt int `json:"created"`
 }
 
 type PaymentStatus string
@@ -120,7 +120,7 @@ type OrderCreateResponse struct {
 	Status     string      `json:"status"`
 	Attempts   int         `json:"attempts"`
 	Notes      interface{} `json:"notes"`
-	CreatedAt  int         `json:"created_at"`
+	CreatedAt  int         `json:"created"`
 }
 
 func (a *OrderCreateResponse) GetNotes() map[string]string {

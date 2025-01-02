@@ -13,6 +13,7 @@ import (
 
 	cashfree "github.com/cashfree/cashfree-pg/v4"
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/razorpay/razorpay-go"
 	utils "github.com/razorpay/razorpay-go/utils"
 	"go.mongodb.org/mongo-driver/bson"
@@ -164,7 +165,7 @@ func CreateOrder(order OrderDetail) (*cashfree.OrderEntity, error) {
 // 	}
 // }
 
-func Executerazorpay(amount float64, receptId primitive.ObjectID, orderId string) (string, error) {
+func Executerazorpay(amount float64, receptId uuid.UUID, orderId string) (string, error) {
 	rzp_id := os.Getenv("RAZORPAY_ID")
 	rzp_secret := os.Getenv("RAZORPAY_SECRET")
 	l.DebugF("i get order id: %s", orderId)
