@@ -165,7 +165,7 @@ func CreateOrder(order OrderDetail) (*cashfree.OrderEntity, error) {
 // 	}
 // }
 
-func Executerazorpay(amount float64, receptId uuid.UUID, orderId string) (string, error) {
+func Executerazorpay(amount float64, receptId uuid.UUID, orderId string) (string, map[string]any, error) {
 	rzp_id := os.Getenv("RAZORPAY_ID")
 	rzp_secret := os.Getenv("RAZORPAY_SECRET")
 	l.DebugF("i get order id: %s", orderId)
@@ -187,13 +187,13 @@ func Executerazorpay(amount float64, receptId uuid.UUID, orderId string) (string
 	l.DebugF("Data: %#v", data)
 	body, err := client.Order.Create(data, nil)
 	if err != nil {
-		return "", errors.New("payment not initiated")
+		return "", nil, errors.New("payment not initiated")
 	}
 
 	razorId, _ := body["id"].(string)
 
 	l.DebugF("Razorpay Order ID: %s", razorId)
-	return razorId, nil
+	return razorId, body, nil
 }
 
 // TODO use db to store this

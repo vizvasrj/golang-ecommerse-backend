@@ -20,6 +20,7 @@ func createLogger() *zap.Logger {
 
 	developmentCfg := zap.NewDevelopmentEncoderConfig()
 	developmentCfg.EncodeLevel = zapcore.CapitalColorLevelEncoder
+	developmentCfg.EncodeCaller = zapcore.FullCallerEncoder // Include full file path
 
 	consoleEncoder := zapcore.NewConsoleEncoder(developmentCfg)
 
