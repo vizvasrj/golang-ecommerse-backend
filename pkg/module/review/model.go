@@ -17,14 +17,14 @@ const (
 )
 
 // type ReviewUser struct {
-// 	ID        primitive.ObjectID `bson:"_id,omitempty" json:"_id,omitempty"`
+// 	ID        primitive.ObjectID `bson:"_id,omitempty" json:"Id,omitempty"`
 // 	FirstName string             `bson:"firstName,omitempty" json:"firstName,omitempty"`
 // 	LastName  string             `bson:"lastName,omitempty" json:"lastName,omitempty"`
 // 	Email     string             `bson:"email,omitempty" json:"email,omitempty"`
 // }
 
 // type Review struct {
-// 	ID            primitive.ObjectID `bson:"_id,omitempty" json:"_id,omitempty"`
+// 	ID            primitive.ObjectID `bson:"_id,omitempty" json:"Id,omitempty"`
 // 	Product       primitive.ObjectID `bson:"product,omitempty" json:"product,omitempty"`
 // 	User          ReviewUser         `bson:"user,omitempty" json:"user,omitempty"`
 // 	Title         string             `bson:"title,omitempty" json:"title,omitempty"`
@@ -46,13 +46,13 @@ const (
 // }
 
 type Review struct {
-	ID            uuid.UUID   `db:"id" json:"id"`
-	ProductID     uuid.UUID   `db:"product_id" json:"product_id"`
-	UserID        uuid.UUID   `db:"user_id" json:"user_id"`
+	ID            uuid.UUID   `db:"id" json:"_id"`
+	ProductID     uuid.UUID   `db:"product_id" json:"productId"`
+	UserID        uuid.UUID   `db:"user_id" json:"userId"`
 	Title         string      `db:"title" json:"title" binding:"required"`
 	Rating        float64     `db:"rating" json:"rating" binding:"required"`
 	Review        string      `db:"review" json:"review" binding:"required"`
-	IsRecommended bool        `db:"is_recommended" json:"is_recommended"`
+	IsRecommended bool        `db:"is_recommended" json:"isRecommended"`
 	Status        string      `db:"status" json:"status"`
 	Updated       null.Time   `db:"updated" json:"updated"`
 	Created       time.Time   `db:"created" json:"created"`
@@ -60,16 +60,16 @@ type Review struct {
 }
 
 type ReviewUser struct { // This struct represents the user who wrote the review.
-	ID        uuid.UUID `db:"id" json:"id"`
-	FirstName string    `db:"first_name" json:"first_name"`
-	LastName  string    `db:"last_name" json:"last_name"`
+	ID        uuid.UUID `db:"id" json:"_id"`
+	FirstName string    `db:"first_name" json:"firstName"`
+	LastName  string    `db:"last_name" json:"lastName"`
 	Email     string    `db:"email" json:"email"`
 }
 
 type PutReviewInput struct {
-	ProductID     uuid.UUID `json:"product_id" binding:"required"`
+	ProductID     uuid.UUID `json:"productId" binding:"required"`
 	Title         string    `json:"title" binding:"required"`
 	Rating        string    `json:"rating" binding:"required"`
 	Review        string    `json:"review" binding:"required"`
-	IsRecommended bool      `json:"is_recommended"`
+	IsRecommended bool      `json:"isRecommended"`
 }

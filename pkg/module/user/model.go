@@ -9,7 +9,7 @@ package user
 // )
 
 // type User struct {
-// 	ID                   primitive.ObjectID `bson:"_id,omitempty" json:"id,omitempty"`
+// 	ID                   primitive.ObjectID `bson:"_id,omitempty" json:"_id,omitempty"`
 // 	Email                string             `bson:"email,omitempty" json:"email,omitempty"`
 // 	PhoneNumber          string             `bson:"phoneNumber,omitempty" json:"phoneNumber,omitempty"`
 // 	FirstName            string             `bson:"firstName,omitempty" json:"firstName,omitempty"`
@@ -33,7 +33,7 @@ package user
 // 	Email         string `bson:"email" json:"email"`
 // 	FamilyName    string `bson:"family_name" json:"family_name"`
 // 	GivenName     string `bson:"given_name" json:"given_name"`
-// 	GoogleID      string `bson:"id" json:"id"`
+// 	GoogleID      string `bson:"id" json:"_id"`
 // 	Name          string `bson:"name" json:"name"`
 // 	Picture       string `bson:"picture" json:"picture"`
 // 	VerifiedEmail bool   `bson:"verified_email" json:"verified_email"`

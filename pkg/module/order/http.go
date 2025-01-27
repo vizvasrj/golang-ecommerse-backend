@@ -544,8 +544,9 @@ func FetchOrder(app *conf.Config) gin.HandlerFunc { // Updated FetchOrder
 
 			return
 		}
+		// rows.Close()
 
-		defer rows.Close()                            // Close rows to free resources
+		// defer rows.Close()                            // Close rows to free resources
 		orderInfo.Products = make([]cart.CartItem, 0) // Initialize to empty slice
 
 		for rows.Next() {
@@ -560,20 +561,23 @@ func FetchOrder(app *conf.Config) gin.HandlerFunc { // Updated FetchOrder
 				return
 
 			}
-
+			l.DebugF("Fetching product details for product ID: %s", cartItem.ProductID)
 			var product product.Product
-			err = tx.QueryRowContext(ctx, "SELECT id, sku, name, slug, image_url, description, quantity, price, taxable, is_active, brand_id, category_id, merchant_id, updated, created FROM products WHERE id = $1", cartItem.ProductID).Scan(&product.ID, &product.SKU, &product.Name, &product.Slug, &product.ImageURL, &product.ImageKey, &product.Description, &product.Quantity, &product.Price, &product.Taxable, &product.IsActive, &product.BrandID, &product.CategoryID, &product.MerchantID, &product.Updated, &product.Created)
+			query := "SELECT id, sku, name, slug, image_url, description, quantity, price, taxable, is_active, brand_id, merchant_id, updated, created FROM products WHERE id = $1"
+
+			err = tx.QueryRowContext(ctx, query, cartItem.ProductID).Scan(
+				&product.ID, &product.SKU, &product.Name, &product.Slug, &product.ImageURL, &product.ImageKey,
+				&product.Description, &product.Quantity, &product.Price, &product.Taxable, &product.IsActive,
+				&product.BrandID, &product.MerchantID, &product.Updated, &product.Created,
+			)
 			if err != nil {
-
 				if errors.Is(err, sql.ErrNoRows) {
-
 					c.JSON(http.StatusNotFound, gin.H{"error": fmt.Sprintf("Product with ID %s not found in cart", cartItem.ProductID)}) // More informative error
 				} else {
-					l.ErrorF("Failed to fetch product: %v", err)                                           // Log with more context
+					l.ErrorF("Failed to fetch product: %#v", err)                                          // Log with more context
 					c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch product data"}) // Generic message for security
 				}
 				return
-
 			}
 			cartItem.Product = &product
 			orderInfo.Products = append(orderInfo.Products, cartItem)

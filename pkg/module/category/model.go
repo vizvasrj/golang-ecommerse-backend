@@ -7,11 +7,11 @@ import (
 )
 
 type Category struct {
-	ID          uuid.UUID `db:"id" json:"id"`
+	ID          uuid.UUID `db:"id" json:"Id"`
 	Name        string    `db:"name" json:"name" binding:"required"`
 	Slug        string    `db:"slug" json:"slug"`
 	Description string    `db:"description" json:"description,omitempty"`
-	IsActive    bool      `db:"is_active" json:"is_active,omitempty"`
+	IsActive    bool      `db:"is_active" json:"isActive,omitempty"`
 	Updated     time.Time `db:"updated" json:"updated,omitempty"`
 	Created     time.Time `db:"created" json:"created,omitempty"`
 }
@@ -20,5 +20,5 @@ type CategoryUpdate struct { // Struct for partial updates
 	Name        *string `json:"name"`
 	Slug        *string `json:"slug"`
 	Description *string `json:"description"`
-	IsActive    *bool   `json:"is_active"`
+	IsActive    *bool   `json:"isActive"`
 }

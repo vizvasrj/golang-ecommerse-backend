@@ -18,19 +18,19 @@ import (
 type MerchantAdd struct {
 	Name        string `json:"name" binding:"required"`
 	Email       string `json:"email" binding:"required"`
-	PhoneNumber string `json:"phone_number" binding:"required"`
-	BrandName   string `json:"brand_name" binding:"required"`
+	PhoneNumber string `json:"phoneNumber" binding:"required"`
+	BrandName   string `json:"brandName" binding:"required"`
 	Business    string `json:"business" binding:"required"`
 }
 
 type MerchantUpdate struct {
 	Name        *string    `json:"name"`
 	Email       *string    `json:"email"`
-	PhoneNumber *string    `json:"phone_number"`
-	BrandName   *string    `json:"brand_name"`
+	PhoneNumber *string    `json:"phoneNumber"`
+	BrandName   *string    `json:"brandName"`
 	Business    *string    `json:"business"`
-	IsActive    *bool      `json:"is_active"`
-	BrandID     *uuid.UUID `json:"brand_id"`
+	IsActive    *bool      `json:"isActive"`
+	BrandID     *uuid.UUID `json:"brandId"`
 	Status      *string    `json:"status"`
 }
 
@@ -231,7 +231,7 @@ func DisableMerchantAccount(app *conf.Config) gin.HandlerFunc {
 		}
 
 		var update struct {
-			IsActive *bool `json:"is_active" binding:"required"` // Changed name for Postgres convention.
+			IsActive *bool `json:"isActive" binding:"required"` // Changed name for Postgres convention.
 		}
 
 		if err := c.ShouldBindJSON(&update); err != nil {

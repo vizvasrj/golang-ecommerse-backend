@@ -14,40 +14,40 @@ import (
 
 // Address represents the address model for Postgres
 type Address struct {
-	ID           uuid.UUID `json:"id"`
-	UserID       uuid.UUID `json:"user_id"`
-	AddressLine1 string    `json:"address_line1"`
-	AddressLine2 string    `json:"address_line2"`
+	ID           uuid.UUID `json:"_id"`
+	UserID       uuid.UUID `json:"userId"`
+	AddressLine1 string    `json:"addressLine1"`
+	AddressLine2 string    `json:"addressLine2"`
 	Address      string    `json:"address"`
 	City         string    `json:"city"`
 	State        string    `json:"state"`
 	Country      string    `json:"country"`
-	ZipCode      string    `json:"zip_code"`
-	IsDefault    bool      `json:"is_default"`
+	ZipCode      string    `json:"zipCode"`
+	IsDefault    bool      `json:"isDefault"`
 	Updated      time.Time `json:"updated"`
 	Created      time.Time `json:"created"`
 }
 
 // AddressAdd represents the request body for adding an address
 type AddressAdd struct {
-	AddressLine1 string `json:"address_line1"`
-	AddressLine2 string `json:"address_line2"`
+	AddressLine1 string `json:"addressLine1"`
+	AddressLine2 string `json:"addressLine2"`
 	City         string `json:"city" binding:"required"`
 	State        string `json:"state" binding:"required"`
 	Country      string `json:"country" binding:"required"`
-	ZipCode      string `json:"zip_code" binding:"required"`
-	IsDefault    bool   `json:"is_default"`
+	ZipCode      string `json:"zipCode" binding:"required"`
+	IsDefault    bool   `json:"isDefault"`
 }
 
 // AddressUpdate  represents the request body for updating an address
 type AddressUpdate struct {
-	AddressLine1 string `json:"address_line1"`
-	AddressLine2 string `json:"address_line2"`
+	AddressLine1 string `json:"addressLine1"`
+	AddressLine2 string `json:"addressLine2"`
 	City         string `json:"city"`
 	State        string `json:"state"`
 	Country      string `json:"country"`
-	ZipCode      string `json:"zip_code"`
-	IsDefault    *bool  `json:"is_default"`
+	ZipCode      string `json:"zipCode"`
+	IsDefault    *bool  `json:"isDefault"`
 }
 
 func AddAddress(app *conf.Config) gin.HandlerFunc {
