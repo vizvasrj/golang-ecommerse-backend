@@ -276,8 +276,15 @@ func ApproveMerchant(app *conf.Config) gin.HandlerFunc {
 		}
 
 		// Update merchant status to "Approved" and set is_active to true
-		ctx := context.Background()
-		_, err = app.DB.ExecContext(ctx, `
+		tx, err := app.DB.BeginTx(c, nil)
+		if err != nil {
+			l.DebugF("Error beginning transaction: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to begin transaction"})
+			return
+		}
+		defer tx.Rollback()
+
+		_, err = tx.ExecContext(c, `
             UPDATE merchants 
             SET status = $1, is_active = $2, updated = $3 
             WHERE id = $4
@@ -286,6 +293,24 @@ func ApproveMerchant(app *conf.Config) gin.HandlerFunc {
 		if err != nil {
 			l.DebugF("Error approving merchant: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to approve merchant"})
+			return
+		}
+
+		_, err = tx.ExecContext(c, `
+			UPDATE users
+			SET role = $1
+			WHERE id = (SELECT user_id FROM merchants WHERE id = $2)
+		`, common.RoleMerchant, merchantID)
+
+		if err != nil {
+			l.DebugF("Error updating user role: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update user role"})
+			return
+		}
+
+		if err := tx.Commit(); err != nil {
+			l.DebugF("Error committing transaction: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to commit transaction"})
 			return
 		}
 

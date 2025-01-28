@@ -202,7 +202,7 @@ func FetchStoreProductsByFilters(app *conf.Config) gin.HandlerFunc {
 		maxPriceStr := c.DefaultQuery("max", "0") // Or a very large number if no max limit
 		ratingStr := c.DefaultQuery("rating", "0")
 		categorySlug := c.Query("category")
-		brandSlug := c.Query("brand")
+		// brandSlug := c.Query("brand")
 		page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 		limit, _ := strconv.Atoi(c.DefaultQuery("limit", "10"))
 
@@ -210,6 +210,7 @@ func FetchStoreProductsByFilters(app *conf.Config) gin.HandlerFunc {
 		SELECT p.id, p.sku, p.name, p.slug, p.image_url, p.description, p.quantity, p.price, p.taxable, p.is_active, p.brand_id, p.merchant_id, p.updated, p.created
 		FROM products p
 		LEFT JOIN product_categories pc ON p.id = pc.product_id
+		LEFT JOIN categories c ON pc.category_id = c.id
 		WHERE p.is_active = true` // Base query
 
 		args := []interface{}{}
@@ -249,14 +250,8 @@ func FetchStoreProductsByFilters(app *conf.Config) gin.HandlerFunc {
 		}
 
 		if categorySlug != "" {
-			query += fmt.Sprintf(" AND cat.slug = $%d", argIndex)
+			query += fmt.Sprintf(" AND c.slug = $%d", argIndex)
 			args = append(args, categorySlug)
-			argIndex++
-		}
-
-		if brandSlug != "" {
-			query += fmt.Sprintf(" AND b.slug = $%d", argIndex)
-			args = append(args, brandSlug)
 			argIndex++
 		}
 
@@ -672,16 +667,29 @@ func UpdateProduct(app *conf.Config) gin.HandlerFunc {
 
 		userRole := common.GetUserRole(userRoleStr)
 
-		userIdStr, exists := c.MustGet("userID").(string)
+		// userIdStr, exists := c.MustGet("userID").(string)
+		// if !exists {
+		// 	c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		// 	return
+		// }
+
+		// userID, err := uuid.Parse(userIdStr)
+		// if err != nil {
+		// 	l.DebugF("Invalid user ID: %v", err)
+		// 	c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
+		// 	return
+		// }
+
+		merchantIDStr, exists := c.MustGet("merchantID").(string)
 		if !exists {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 			return
 		}
 
-		userID, err := uuid.Parse(userIdStr)
+		merchantID, err := uuid.Parse(merchantIDStr)
 		if err != nil {
-			l.DebugF("Invalid user ID: %v", err)
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
+			l.DebugF("Invalid merchant ID: %v", err)
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid merchant ID"})
 			return
 		}
 
@@ -701,7 +709,10 @@ func UpdateProduct(app *conf.Config) gin.HandlerFunc {
 			return
 
 		}
-		defer tx.Rollback() // Important: defer the rollback to handle potential errors
+		defer func() {
+
+			err = tx.Rollback()
+		}() // Important: defer the rollback to handle potential errors
 
 		updateQuery := "UPDATE products SET updated = $1"
 		args := []interface{}{time.Now()}
@@ -764,6 +775,7 @@ func UpdateProduct(app *conf.Config) gin.HandlerFunc {
 		}
 
 		updateQuery += fmt.Sprintf(" WHERE id = $%d", argIndex)
+		argIndex++
 		args = append(args, productID)
 
 		if userRole == common.RoleMerchant {
@@ -773,7 +785,7 @@ func UpdateProduct(app *conf.Config) gin.HandlerFunc {
 			err = app.DB.QueryRowContext(c, "SELECT merchant_id FROM products WHERE id = $1", productID).Scan(&productMerchantID)
 			if err != nil {
 				if err == sql.ErrNoRows {
-
+					l.DebugF("Product not found: %v", err)
 					c.JSON(http.StatusNotFound, gin.H{"error": "Product not found"})
 					return
 
@@ -786,17 +798,21 @@ func UpdateProduct(app *conf.Config) gin.HandlerFunc {
 
 			}
 
-			if productMerchantID != userID { // Authorization check
+			if productMerchantID != merchantID { // Authorization check
+
 				c.JSON(http.StatusForbidden, gin.H{"error": "You are not authorized to update this product"})
 				return
 			}
 
 			updateQuery += fmt.Sprintf(" AND merchant_id = $%d", argIndex)
-			args = append(args, userID)
+			argIndex++
+			args = append(args, merchantID)
 
 		} else if userRole != common.RoleAdmin { // Admin can update any product
 			c.JSON(http.StatusForbidden, gin.H{"error": "Unauthorized"}) // Proper status code for authorization failure
 			return
+		} else {
+			l.DebugF("some diffrent way")
 		}
 
 		// Check for SKU and slug uniqueness only if being updated.
@@ -816,7 +832,7 @@ func UpdateProduct(app *conf.Config) gin.HandlerFunc {
 
 		if updateProduct.Slug != nil {
 			var slugCount int
-			err = tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM products WHERE slug = $1 AND id != $2", *updateProduct.Slug, productID).Scan(&slugCount)
+			err = tx.QueryRow("SELECT COUNT(*) FROM products WHERE slug = $1 AND id != $2", *updateProduct.Slug, productID).Scan(&slugCount)
 			if err != nil {
 				l.ErrorF("Failed to check slug uniqueness: %v", err)
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check slug uniqueness."})
@@ -829,13 +845,34 @@ func UpdateProduct(app *conf.Config) gin.HandlerFunc {
 		}
 
 		// Execute the update within the transaction
-		_, err = tx.ExecContext(ctx, updateQuery, args...) // Use tx.ExecContext here
+		var product Product
+		updateQuery += " RETURNING id, name, sku, slug, image_url, description, quantity, price, taxable, is_active, brand_id, merchant_id, updated, created"
+
+		err = tx.QueryRow(updateQuery, args...).Scan(
+			&product.ID,
+			&product.Name,
+			&product.SKU,
+			&product.Slug,
+			&product.ImageURL,
+			&product.Description,
+			&product.Quantity,
+			&product.Price,
+			&product.Taxable,
+			&product.IsActive,
+			&product.BrandID,
+			&product.MerchantID,
+			&product.Updated,
+			&product.Created,
+		) // Use tx.ExecContext here
 		if err != nil {
-			l.DebugF("Error updating product: %v", err) // Log the specific error for better debugging.
+			l.DebugF("Query: %s, Args: %v", updateQuery, args)
+			l.ErrorF("Error updating product: %v", err) // Log the specific error for better debugging.
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update product"})
 
 			return
 		}
+
+		// l.DebugF("Product updated: %#v", updateProduct)
 
 		if err = tx.Commit(); err != nil { // Commit only if no errors
 			l.ErrorF("Failed to commit transaction: %v", err)
@@ -843,7 +880,11 @@ func UpdateProduct(app *conf.Config) gin.HandlerFunc {
 			return
 		}
 
-		c.JSON(http.StatusOK, gin.H{"success": true, "message": "Product updated successfully"})
+		c.JSON(http.StatusOK, gin.H{
+			"success": true,
+			"message": "Product updated successfully",
+			"product": product,
+		})
 
 	}
 }
@@ -867,32 +908,48 @@ func UpdateProductStatus(app *conf.Config) gin.HandlerFunc {
 
 		userRole := common.GetUserRole(userRoleStr)
 
-		userIdStr, exists := c.MustGet("userID").(string)
+		// userIdStr, exists := c.MustGet("userID").(string)
+		// if !exists {
+		// 	c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		// 	return
+		// }
+
+		// userID, err := uuid.Parse(userIdStr)
+		// if err != nil {
+		// 	l.DebugF("Invalid user ID: %v", err)
+		// 	c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
+		// 	return
+		// }
+		merchantIDStr, exists := c.MustGet("merchantID").(string)
 		if !exists {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 			return
 		}
 
-		userID, err := uuid.Parse(userIdStr)
+		merchantID, err := uuid.Parse(merchantIDStr)
 		if err != nil {
-			l.DebugF("Invalid user ID: %v", err)
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
+			l.DebugF("Invalid merchant ID: %v", err)
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid merchant ID"})
 			return
 		}
 
 		var updateData struct {
-			IsActive bool `json:"is_active"`
+			IsActive *bool `json:"isActive"`
 		}
 		if err := c.ShouldBindJSON(&updateData); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
 
 			return
 		}
+		if updateData.IsActive == nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "isActive field is required"})
+			return
+		}
 
 		// Check if the user is a merchant or admin and authorize
 		if userRole == common.RoleMerchant {
-			var merchantID uuid.UUID
-			err = app.DB.QueryRowContext(c, "SELECT merchant_id FROM products WHERE id = $1", productID).Scan(&merchantID)
+			var selectMerchantID uuid.UUID
+			err = app.DB.QueryRowContext(c, "SELECT merchant_id FROM products WHERE id = $1", productID).Scan(&selectMerchantID)
 			if err != nil {
 				if errors.Is(err, sql.ErrNoRows) {
 					c.JSON(http.StatusNotFound, gin.H{"error": "Product not found"})
@@ -902,7 +959,7 @@ func UpdateProductStatus(app *conf.Config) gin.HandlerFunc {
 				}
 				return
 			}
-			if merchantID != userID {
+			if selectMerchantID != merchantID {
 				c.JSON(http.StatusForbidden, gin.H{"error": "Unauthorized to update this product"})
 				return
 			}

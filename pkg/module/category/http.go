@@ -232,7 +232,7 @@ func UpdateCategoryStatus(app *conf.Config) gin.HandlerFunc {
 		}
 
 		var req struct {
-			IsActive *bool `json:"is_active"`
+			IsActive *bool `json:"isActive"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil {
 

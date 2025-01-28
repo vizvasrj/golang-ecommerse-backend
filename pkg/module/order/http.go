@@ -77,155 +77,169 @@ func AddOrderWithCartItemAndAddress(app *conf.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req AddOrder2Request
 
-		if err := c.ShouldBindJSON(&req); err != nil {
-
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"}) // More specific error message
+		if !bindAndValidateRequest(c, &req) {
 			return
 		}
 
-		userIDStr := c.GetString("userID")
-		userID, err := uuid.Parse(userIDStr)
+		userID, err := getUserID(c)
 		if err != nil {
-
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"}) // More specific error message
-
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
 			return
 		}
 
 		ctx := context.Background()
-
-		tx, err := app.DB.BeginTx(ctx, nil) // Start transaction
+		tx, err := beginTransaction(ctx, app)
 		if err != nil {
-			l.ErrorF("Error beginning transaction: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to begin transaction"})
-
 			return
 		}
+		defer tx.Rollback()
 
-		defer tx.Rollback() // Always defer rollback
-
-		cartItems := []cart.CartItem{} // Use cart.CartItem
-
-		rows, err := app.DB.QueryContext(ctx, `
-			SELECT ci.product_id, ci.quantity, p.price
-			FROM cart_items ci
-			JOIN products p ON ci.product_id = p.id
-			WHERE ci.cart_id = $1
-		`, req.CartID)
+		cartItems, err := fetchCartItems(ctx, tx, req.CartID)
 		if err != nil {
-			l.DebugF("Error retrieving cart items: %v", err)                                        // Log for debugging
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve cart items"}) // Generic error message to the client
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve cart items"})
 			return
-
-		}
-		defer rows.Close() // Close rows when done
-
-		for rows.Next() {
-
-			var cartItem cart.CartItem
-			var price float64 // Directly get the price from the products table
-			err := rows.Scan(&cartItem.ProductID, &cartItem.Quantity, &price)
-			if err != nil {
-
-				l.DebugF("Error scanning cart items: %v", err)
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to scan cart items"})
-				return
-
-			}
-
-			cartItem.PurchasePrice = price
-			cartItems = append(cartItems, cartItem)
 		}
 
-		total := 0.0
-		for _, item := range cartItems {
-			total += item.PurchasePrice * float64(item.Quantity)
+		total := calculateTotal(cartItems)
 
+		if !verifyAddressOwnership(ctx, tx, req.AddressID, userID) {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "You are not authorized to use this address."})
+			return
 		}
 
-		var addressExists bool
+		if !verifyCartOwnership(ctx, tx, req.CartID, userID) {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "You are not authorized to use this cart."})
+			return
+		}
 
-		err = app.DB.QueryRowContext(ctx, "SELECT EXISTS (SELECT 1 FROM addresses WHERE id = $1 AND user_id = $2)", req.AddressID, userID).Scan(&addressExists)
+		newOrderID, err := createOrder(ctx, tx, req, userID, total)
 		if err != nil {
-
-			l.DebugF("Failed to verify address ownership: %v", err)                            // Log the error for debugging
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to verify address"}) // Generic error message to the client
-			return
-		}
-
-		if !addressExists {
-
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "You are not authorized to use this address."}) // More specific message
-			return
-		}
-
-		newOrderID := uuid.New()
-
-		_, err = app.DB.ExecContext(ctx, `
-			INSERT INTO orders (id, cart_id, user_id, address_id, total, created)
-			VALUES ($1, $2, $3, $4, $5, $6)
-		`, newOrderID, req.CartID, userID, req.AddressID, total, time.Now())
-		if err != nil {
-			l.DebugF("Failed to insert order: %v", err) // Improved logging
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create order"})
 			return
 		}
 
-		newReceiptID := uuid.New()
-		razorpayOrderID, provider_data, err := payment.Executerazorpay(total, newReceiptID, newOrderID.String())
-
+		razorpayOrderID, providerData, err := initiatePayment(total, newOrderID)
 		if err != nil {
-
-			l.DebugF("Failed to initiate Razorpay order: %v", err)                               // Log the error with context
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to initiate payment"}) // Generic error message to the user
-
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to initiate payment"})
 			return
 		}
 
-		provider_dataJSON, err := json.Marshal(provider_data)
-		if err != nil {
-			l.ErrorF("Failed to marshal provider data: %v", err)                               // Log the error for debugging
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create receipt"}) // Generic error message
-			return
-		}
-
-		razorpay_id := os.Getenv("RAZORPAY_ID")
-
-		_, err = tx.ExecContext(ctx, `
-			INSERT INTO receipts (id, order_id, amount, created, updated, payment_provider, provider_data, payment_status)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-		`, newReceiptID, newOrderID, total, time.Now(), time.Now(), "razorpay", string(provider_dataJSON), "PENDING")
-		if err != nil {
-			l.ErrorF("Failed to insert receipt: %v", err) // Log error for debugging
+		if err := createReceipt(ctx, tx, newOrderID, total, providerData); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create receipt"})
 			return
 		}
 
 		if err := tx.Commit(); err != nil {
-
-			l.ErrorF("Failed to commit transaction: %v", err)                                      // Log the error
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to commit transaction"}) // Generic error message
-
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to commit transaction"})
 			return
 		}
 
-		c.JSON(http.StatusOK, gin.H{
-
-			"success": true,
-			"message": "Your order has been placed successfully!",
-			"order": gin.H{
-
-				"id":     newOrderID,
-				"amount": total * 100,
-			},
-
-			"razorpay_order_id": razorpayOrderID,
-			"razorpay_id":       razorpay_id,
-		})
+		respondSuccess(c, newOrderID, total, razorpayOrderID)
 	}
-
 }
 
+func bindAndValidateRequest(c *gin.Context, req *AddOrder2Request) bool {
+	if err := c.ShouldBindJSON(req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
+		return false
+	}
+	return true
+}
+
+func getUserID(c *gin.Context) (uuid.UUID, error) {
+	userIDStr := c.GetString("userID")
+	return uuid.Parse(userIDStr)
+}
+
+func beginTransaction(ctx context.Context, app *conf.Config) (*sql.Tx, error) {
+	return app.DB.BeginTx(ctx, nil)
+}
+
+func fetchCartItems(ctx context.Context, tx *sql.Tx, cartID uuid.UUID) ([]cart.CartItem, error) {
+	rows, err := tx.QueryContext(ctx, `
+        SELECT ci.product_id, ci.quantity, p.price
+        FROM cart_items ci
+        JOIN products p ON ci.product_id = p.id
+        WHERE ci.cart_id = $1
+    `, cartID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var cartItems []cart.CartItem
+	for rows.Next() {
+		var cartItem cart.CartItem
+		var price float64
+		if err := rows.Scan(&cartItem.ProductID, &cartItem.Quantity, &price); err != nil {
+			return nil, err
+		}
+		cartItem.PurchasePrice = price
+		cartItems = append(cartItems, cartItem)
+	}
+	return cartItems, nil
+}
+
+func calculateTotal(cartItems []cart.CartItem) float64 {
+	total := 0.0
+	for _, item := range cartItems {
+		total += item.PurchasePrice * float64(item.Quantity)
+	}
+	return total
+}
+
+func verifyAddressOwnership(ctx context.Context, tx *sql.Tx, addressID, userID uuid.UUID) bool {
+	var addressExists bool
+	err := tx.QueryRowContext(ctx, "SELECT EXISTS (SELECT 1 FROM addresses WHERE id = $1 AND user_id = $2)", addressID, userID).Scan(&addressExists)
+	return err == nil && addressExists
+}
+
+func verifyCartOwnership(ctx context.Context, tx *sql.Tx, cartID, userID uuid.UUID) bool {
+	var cartExists bool
+	err := tx.QueryRowContext(ctx, "SELECT EXISTS (SELECT 1 FROM carts WHERE id = $1 AND user_id = $2)", cartID, userID).Scan(&cartExists)
+	return err == nil && cartExists
+}
+
+func createOrder(ctx context.Context, tx *sql.Tx, req AddOrder2Request, userID uuid.UUID, total float64) (uuid.UUID, error) {
+	newOrderID := uuid.New()
+	_, err := tx.ExecContext(ctx, `
+        INSERT INTO orders (id, cart_id, user_id, address_id, total, created)
+        VALUES ($1, $2, $3, $4, $5, $6)
+    `, newOrderID, req.CartID, userID, req.AddressID, total, time.Now())
+	return newOrderID, err
+}
+
+func initiatePayment(total float64, orderID uuid.UUID) (string, interface{}, error) {
+	newReceiptID := uuid.New()
+	return payment.Executerazorpay(total, newReceiptID, orderID.String())
+}
+
+func createReceipt(ctx context.Context, tx *sql.Tx, orderID uuid.UUID, total float64, providerData interface{}) error {
+	providerDataJSON, err := json.Marshal(providerData)
+	if err != nil {
+		return err
+	}
+
+	_, err = tx.ExecContext(ctx, `
+        INSERT INTO receipts (id, order_id, amount, created, updated, payment_provider, provider_data, payment_status)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+    `, uuid.New(), orderID, total, time.Now(), time.Now(), "razorpay", string(providerDataJSON), "PENDING")
+	return err
+}
+
+func respondSuccess(c *gin.Context, orderID uuid.UUID, total float64, razorpayOrderID string) {
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "Your order has been placed successfully!",
+		"order": gin.H{
+			"id":     orderID,
+			"amount": total * 100,
+		},
+		"razorpay_order_id": razorpayOrderID,
+		"razorpay_id":       os.Getenv("RAZORPAY_ID"),
+	})
+}
 func SearchOrders(app *conf.Config) gin.HandlerFunc { // Updated SearchOrders function
 	return func(c *gin.Context) {
 		searchQuery := c.Query("search")
@@ -544,7 +558,7 @@ func FetchOrder(app *conf.Config) gin.HandlerFunc { // Updated FetchOrder
 
 			return
 		}
-		// rows.Close()
+		rows.Close()
 
 		// defer rows.Close()                            // Close rows to free resources
 		orderInfo.Products = make([]cart.CartItem, 0) // Initialize to empty slice
