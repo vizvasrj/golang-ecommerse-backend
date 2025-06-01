@@ -12,6 +12,10 @@ func SetupRoute(path string, r *gin.RouterGroup, app *conf.Config) {
 	{
 		cart_route.POST("/add",
 			middleware.AuthMiddleware(app),
+			CreateCart(app))
+
+		cart_route.POST("",
+			middleware.AuthOrNotMiddleware(app),
 			AddToCart(app))
 
 		cart_route.DELETE("/delete/:cartId",
@@ -26,11 +30,13 @@ func SetupRoute(path string, r *gin.RouterGroup, app *conf.Config) {
 			middleware.AuthOrNotMiddleware(app),
 			AddProductToCartV2(app))
 
-		cart_route.DELETE("/delete/:cartId/:productId",
+		cart_route.DELETE("/delete",
 			middleware.AuthMiddleware(app),
 			RemoveProductFromCart(app))
 
-		cart_route.GET("/:cartId", GetCartByCartID(app))
+		cart_route.GET("/:cartId",
+			middleware.AuthOrNotMiddleware(app),
+			GetCartByCartID(app))
 
 	}
 }

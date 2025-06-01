@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"go.mongodb.org/mongo-driver/bson/primitive"
+	"github.com/google/uuid"
 )
 
 type CashfreeWebhookRequest struct {
@@ -31,26 +31,26 @@ func mapToCashfreeWebhookRequest(data interface{}) (*CashfreeWebhookRequest, err
 
 type RazorpayWebhookEntity struct {
 	Entity    string   `json:"entity"`
-	AccountID string   `json:"account_id"`
+	AccountID string   `json:"accountId"`
 	Event     string   `json:"event"`
 	Contains  []string `json:"contains"`
 	Payload   struct {
 		Payment struct {
 			Entity struct {
-				ID               string        `json:"id"`
+				ID               string        `json:"_id"`
 				Entity           string        `json:"entity"`
 				Amount           int           `json:"amount"`
 				Currency         string        `json:"currency"`
 				Status           string        `json:"status"`
-				OrderID          string        `json:"order_id"`
-				InvoiceID        interface{}   `json:"invoice_id"`
+				OrderID          string        `json:"orderId"`
+				InvoiceID        interface{}   `json:"invoiceId"`
 				International    bool          `json:"international"`
 				Method           string        `json:"method"`
-				AmountRefunded   int           `json:"amount_refunded"`
-				RefundStatus     interface{}   `json:"refund_status"`
+				AmountRefunded   int           `json:"amountRefunded"`
+				RefundStatus     interface{}   `json:"refundStatus"`
 				Captured         bool          `json:"captured"`
 				Description      string        `json:"description"`
-				CardID           interface{}   `json:"card_id"`
+				CardID           interface{}   `json:"cardId"`
 				Bank             interface{}   `json:"bank"`
 				Wallet           interface{}   `json:"wallet"`
 				Vpa              string        `json:"vpa"`
@@ -59,25 +59,25 @@ type RazorpayWebhookEntity struct {
 				Notes            []interface{} `json:"notes"`
 				Fee              int           `json:"fee"`
 				Tax              int           `json:"tax"`
-				ErrorCode        interface{}   `json:"error_code"`
-				ErrorDescription interface{}   `json:"error_description"`
-				ErrorSource      interface{}   `json:"error_source"`
-				ErrorStep        interface{}   `json:"error_step"`
-				ErrorReason      interface{}   `json:"error_reason"`
+				ErrorCode        interface{}   `json:"errorCode"`
+				ErrorDescription interface{}   `json:"errorDescription"`
+				ErrorSource      interface{}   `json:"errorSource"`
+				ErrorStep        interface{}   `json:"errorStep"`
+				ErrorReason      interface{}   `json:"errorReason"`
 				AcquirerData     struct {
 					Rrn              string `json:"rrn"`
-					UpiTransactionID string `json:"upi_transaction_id"`
-				} `json:"acquirer_data"`
-				CreatedAt int         `json:"created_at"`
+					UpiTransactionID string `json:"upiTransactionId"`
+				} `json:"acquirerData"`
+				CreatedAt int         `json:"created"`
 				Reward    interface{} `json:"reward"`
 				Upi       struct {
 					Vpa string `json:"vpa"`
 				} `json:"upi"`
-				BaseAmount int `json:"base_amount"`
+				BaseAmount int `json:"baseAmount"`
 			} `json:"entity"`
 		} `json:"payment"`
 	} `json:"payload"`
-	CreatedAt int `json:"created_at"`
+	CreatedAt int `json:"created"`
 }
 
 type PaymentStatus string
@@ -88,39 +88,39 @@ const (
 )
 
 type Receipt struct {
-	ID              primitive.ObjectID `json:"_id" bson:"_id"`
-	OrderID         primitive.ObjectID `json:"orderId" bson:"orderId"`
-	CartID          primitive.ObjectID `json:"cartId" bson:"cartId"`
-	RazorpayOrderID string             `json:"razorpay_order_id" bson:"razorpay_order_id"`
-	Amount          float64            `json:"amount" bson:"amount"`
-	Created         time.Time          `json:"created" bson:"created"`
-	Updated         time.Time          `json:"updated" bson:"updated"`
-	PaymentProvider string             `json:"paymentProvider" bson:"paymentProvider"`
-	ProviderData    interface{}        `json:"providerData" bson:"providerData"`
-	PaymentStatus   PaymentStatus      `json:"paymentStatus" bson:"paymentStatus"`
+	ID              uuid.UUID              `json:"_id" bson:"_id"`
+	OrderID         uuid.UUID              `json:"orderId" bson:"orderId"`
+	CartID          uuid.UUID              `json:"cartId" bson:"cartId"`
+	RazorpayOrderID string                 `json:"razorpayOrderId" bson:"razorpay_order_id"`
+	Amount          float64                `json:"amount" bson:"amount"`
+	Created         time.Time              `json:"created" bson:"created"`
+	Updated         time.Time              `json:"updated" bson:"updated"`
+	PaymentProvider string                 `json:"paymentProvider" bson:"paymentProvider"`
+	ProviderData    map[string]interface{} `json:"providerData" bson:"providerData"`
+	PaymentStatus   PaymentStatus          `json:"paymentStatus" bson:"paymentStatus"`
 }
 
 type OrderCreateRequest struct {
 	Amount                int               `json:"amount"`
 	Currency              string            `json:"currency"`
 	Receipt               string            `json:"receipt"`
-	PartialPayment        bool              `json:"partial_payment"`
+	PartialPayment        bool              `json:"partialPayment"`
 	Notes                 map[string]string `json:"notes,omitempty"`
-	FirstPaymentMinAmount int               `json:"first_payment_min_amount,omitempty"`
+	FirstPaymentMinAmount int               `json:"firstPaymentMinAmount,omitempty"`
 }
 type OrderCreateResponse struct {
-	ID         string      `json:"id"`
+	ID         string      `json:"_id"`
 	Entity     string      `json:"entity"`
 	Amount     uint        `json:"amount"`
-	AmountPaid uint        `json:"amount_paid,omitempty"`
-	AmountDue  uint        `json:"amount_due,omitempty"`
+	AmountPaid uint        `json:"amountPaid,omitempty"`
+	AmountDue  uint        `json:"amountDue,omitempty"`
 	Currency   string      `json:"currency"`
 	Receipt    string      `json:"receipt"`
-	OfferID    interface{} `json:"offer_id,omitempty"`
+	OfferID    interface{} `json:"offerId,omitempty"`
 	Status     string      `json:"status"`
 	Attempts   int         `json:"attempts"`
 	Notes      interface{} `json:"notes"`
-	CreatedAt  int         `json:"created_at"`
+	CreatedAt  int         `json:"created"`
 }
 
 func (a *OrderCreateResponse) GetNotes() map[string]string {

@@ -15,8 +15,10 @@ func SetupRouter(path string, r *gin.RouterGroup, app *conf.Config) {
 			middleware.AuthMiddleware(app),
 			middleware.RoleCheck(common.RoleAdmin, common.RoleMerchant),
 			SearchUsers(app))
+
 		userRoute.GET("",
 			middleware.AuthMiddleware(app),
+			middleware.RoleCheck(common.RoleAdmin),
 			FetchUsers(app))
 
 		userRoute.GET("/me",

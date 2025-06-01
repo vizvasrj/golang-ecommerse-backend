@@ -1,54 +1,91 @@
 package address
 
 import (
+	"database/sql"
+	"fmt"
 	"net/http"
 	"src/l"
 	"src/pkg/conf"
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/bson/primitive"
-	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
+	"github.com/google/uuid" // Import uuid package
 )
+
+// Address represents the address model for Postgres
+type Address struct {
+	ID           uuid.UUID `json:"_id"`
+	UserID       uuid.UUID `json:"userId"`
+	AddressLine1 string    `json:"addressLine1"`
+	AddressLine2 string    `json:"addressLine2"`
+	Address      string    `json:"address"`
+	City         string    `json:"city"`
+	State        string    `json:"state"`
+	Country      string    `json:"country"`
+	ZipCode      string    `json:"zipCode"`
+	IsDefault    bool      `json:"isDefault"`
+	Updated      time.Time `json:"updated"`
+	Created      time.Time `json:"created"`
+}
+
+// AddressAdd represents the request body for adding an address
+type AddressAdd struct {
+	AddressLine1 string `json:"addressLine1"`
+	AddressLine2 string `json:"addressLine2"`
+	City         string `json:"city" binding:"required"`
+	State        string `json:"state" binding:"required"`
+	Country      string `json:"country" binding:"required"`
+	ZipCode      string `json:"zipCode" binding:"required"`
+	IsDefault    bool   `json:"isDefault"`
+}
+
+// AddressUpdate  represents the request body for updating an address
+type AddressUpdate struct {
+	AddressLine1 string `json:"addressLine1"`
+	AddressLine2 string `json:"addressLine2"`
+	City         string `json:"city"`
+	State        string `json:"state"`
+	Country      string `json:"country"`
+	ZipCode      string `json:"zipCode"`
+	IsDefault    *bool  `json:"isDefault"`
+}
 
 func AddAddress(app *conf.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var address AddressAdd
 		if err := c.ShouldBindJSON(&address); err != nil {
-
 			l.DebugF("Error: %v", err)
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
 			return
 		}
 
-		userID, ok := c.MustGet("userID").(string)
-		if !ok {
-			l.DebugF("Error: %v", "User not authenticated")
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
-			return
-		}
-		objectId, err := primitive.ObjectIDFromHex(userID)
+		userIDStr := c.MustGet("userID").(string) // userID is now a string
+		userID, err := uuid.Parse(userIDStr)
 		if err != nil {
-			l.DebugF("Error: %v", err)
+			l.DebugF("Error parsing UUID: %v", err)
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
 			return
 		}
-		var addressAdd Address
-		addressAdd.User = objectId
-		addressAdd.Created = time.Now()
-		addressAdd.Updated = time.Now()
-		addressAdd.Address = address.Address
-		addressAdd.City = address.City
-		addressAdd.State = address.State
-		addressAdd.Country = address.Country
-		addressAdd.ZipCode = address.ZipCode
-		addressAdd.IsDefault = address.IsDefault
 
-		_, err = app.AddressCollection.InsertOne(c, addressAdd)
+		newAddress := Address{
+			ID:           uuid.New(),
+			UserID:       userID,
+			AddressLine1: address.AddressLine1,
+			AddressLine2: address.AddressLine2,
+			City:         address.City,
+			State:        address.State,
+			Country:      address.Country,
+			ZipCode:      address.ZipCode,
+			IsDefault:    address.IsDefault,
+			Updated:      time.Now(),
+			Created:      time.Now(),
+		}
+
+		_, err = app.DB.Exec("INSERT INTO addresses (id, user_id, address_line1, address_line2, city, state, country, zip_code, is_default, updated, created) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
+			newAddress.ID, newAddress.UserID, newAddress.AddressLine1, newAddress.AddressLine2, newAddress.City, newAddress.State, newAddress.Country, newAddress.ZipCode, newAddress.IsDefault, newAddress.Updated, newAddress.Created)
+
 		if err != nil {
-			l.DebugF("Error: %v", err)
+			l.DebugF("Error inserting address: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Could not add address"})
 			return
 		}
@@ -59,28 +96,33 @@ func AddAddress(app *conf.Config) gin.HandlerFunc {
 
 func GetAddresses(app *conf.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
-
-		uid := c.MustGet("userID").(string)
-		userID, err := primitive.ObjectIDFromHex(uid)
+		userIDStr := c.MustGet("userID").(string)
+		userID, err := uuid.Parse(userIDStr)
 		if err != nil {
-			l.DebugF("Error: %v", err)
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+			l.DebugF("Error parsing UUID: %v", err)
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
 			return
 		}
 
-		cursor, err := app.AddressCollection.Find(c, bson.M{"user": userID})
+		rows, err := app.DB.Query("SELECT id, user_id, address_line1, address_line2, city, state, country, zip_code, is_default, updated, created FROM addresses WHERE user_id = $1", userID)
+
 		if err != nil {
-			l.DebugF("Error: %v", err)
+			l.DebugF("Error querying addresses: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Could not fetch addresses"})
 			return
 		}
-		defer cursor.Close(c)
+		defer rows.Close()
 
 		var addresses []Address
-		if err = cursor.All(c, &addresses); err != nil {
-			l.DebugF("Error: %v", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Could not fetch addresses"})
-			return
+		for rows.Next() {
+			var address Address
+			err := rows.Scan(&address.ID, &address.UserID, &address.AddressLine1, &address.AddressLine2, &address.City, &address.State, &address.Country, &address.ZipCode, &address.IsDefault, &address.Updated, &address.Created)
+			if err != nil {
+				l.DebugF("Error scanning address: %v", err)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Could not fetch addresses"})
+				return
+			}
+			addresses = append(addresses, address)
 		}
 
 		c.JSON(http.StatusOK, gin.H{"addresses": addresses})
@@ -89,35 +131,31 @@ func GetAddresses(app *conf.Config) gin.HandlerFunc {
 
 func GetAddress(app *conf.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		addressID, err := primitive.ObjectIDFromHex(c.Param("id"))
-
+		addressIDStr := c.Param("id")
+		addressID, err := uuid.Parse(addressIDStr)
 		if err != nil {
-			l.DebugF("Error: %v", err)
+			l.DebugF("Error parsing address UUID: %v", err)
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid address ID"})
 			return
 		}
 
-		userID, exists := c.Get("userID")
-		if !exists {
-			l.DebugF("Error: %v", err)
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
-			return
-		}
-
-		userObjectId, err := primitive.ObjectIDFromHex(userID.(string))
+		userIDStr := c.MustGet("userID").(string)
+		userID, err := uuid.Parse(userIDStr)
 		if err != nil {
-			l.DebugF("Error: %v", err)
+			l.DebugF("Error parsing user UUID: %v", err)
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
 			return
 		}
 
 		var address Address
-		err = app.AddressCollection.FindOne(c, bson.M{"_id": addressID, "user": userObjectId}).Decode(&address)
-		if err == mongo.ErrNoDocuments {
-			c.JSON(http.StatusNotFound, gin.H{"message": "Cannot find Address with the id: " + c.Param("id")})
+		err = app.DB.QueryRow("SELECT id, user_id, address_line1,address_line2,  city, state, country, zip_code, is_default, updated, created FROM addresses WHERE id = $1 AND user_id = $2", addressID, userID).
+			Scan(&address.ID, &address.UserID, &address.AddressLine1, &address.AddressLine2, &address.City, &address.State, &address.Country, &address.ZipCode, &address.IsDefault, &address.Updated, &address.Created)
+
+		if err == sql.ErrNoRows {
+			c.JSON(http.StatusNotFound, gin.H{"message": "Address not found"})
 			return
 		} else if err != nil {
-			l.DebugF("Error: %v", err)
+			l.DebugF("Error querying address: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Could not fetch address"})
 			return
 		}
@@ -128,79 +166,125 @@ func GetAddress(app *conf.Config) gin.HandlerFunc {
 
 func UpdateAddress(app *conf.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		addressID, err := primitive.ObjectIDFromHex(c.Param("id"))
+		addressIDStr := c.Param("id")
+		addressID, err := uuid.Parse(addressIDStr)
 		if err != nil {
-			l.DebugF("Error: %v", err)
+			l.DebugF("Error parsing address UUID: %v", err)
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid address ID"})
 			return
 		}
 
-		userID, exists := c.MustGet("userID").(string)
-		if !exists {
-			l.DebugF("Error: %v", err)
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
-			return
-		}
-
-		objectUserId, err := primitive.ObjectIDFromHex(userID)
+		userIDStr := c.MustGet("userID").(string)
+		userID, err := uuid.Parse(userIDStr)
 		if err != nil {
-			l.DebugF("Error: %v", err)
+			l.DebugF("Error parsing user UUID: %v", err)
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
 			return
 		}
 
-		var update AddressAdd
-		if err := c.ShouldBindJSON(&update); err != nil {
-			l.DebugF("Error: %v", err)
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
+		var addressUpdate AddressUpdate // Use the update-specific struct
+		if err := c.ShouldBindJSON(&addressUpdate); err != nil {
+			l.DebugF("Error binding JSON: %v", err)
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
 			return
 		}
 
-		filter := bson.M{"_id": addressID, "user": objectUserId}
-		updateResult, err := app.AddressCollection.UpdateOne(c, filter, bson.M{"$set": update})
-		if err != nil {
-			l.DebugF("Error: %v", err)
+		// Dynamically build the update query based on provided fields
+		updateQuery := "UPDATE addresses SET updated = $1"
+		updateArgs := []interface{}{time.Now()}
+		counter := 2
+
+		if addressUpdate.AddressLine1 != "" {
+			updateQuery += fmt.Sprintf(", address_line1 = $%d", counter)
+			updateArgs = append(updateArgs, addressUpdate.AddressLine1)
+			counter++
+		}
+		if addressUpdate.AddressLine2 != "" {
+			updateQuery += fmt.Sprintf(", address_line2 = $%d", counter)
+			updateArgs = append(updateArgs, addressUpdate.AddressLine2)
+			counter++
+		}
+		if addressUpdate.City != "" {
+			updateQuery += fmt.Sprintf(", city = $%d", counter)
+			updateArgs = append(updateArgs, addressUpdate.City)
+			counter++
+		}
+		if addressUpdate.State != "" {
+			updateQuery += fmt.Sprintf(", state = $%d", counter)
+			updateArgs = append(updateArgs, addressUpdate.State)
+			counter++
+		}
+		if addressUpdate.Country != "" {
+			updateQuery += fmt.Sprintf(", country = $%d", counter)
+			updateArgs = append(updateArgs, addressUpdate.Country)
+			counter++
+		}
+		if addressUpdate.ZipCode != "" {
+			updateQuery += fmt.Sprintf(", zip_code = $%d", counter)
+			updateArgs = append(updateArgs, addressUpdate.ZipCode)
+			counter++
+		}
+		if addressUpdate.IsDefault != nil {
+			updateQuery += fmt.Sprintf(", is_default = $%d", counter)
+			updateArgs = append(updateArgs, addressUpdate.IsDefault)
+			counter++
+		}
+
+		updateQuery += fmt.Sprintf(" WHERE id = $%d AND user_id = $%d", counter, counter+1)
+		updateArgs = append(updateArgs, addressID, userID)
+
+		updateQuery += " RETURNING id, user_id, address_line1, address_line2, city, state, country, zip_code, is_default, updated, created"
+
+		var address Address
+		err = app.DB.QueryRow(updateQuery, updateArgs...).Scan(&address.ID, &address.UserID, &address.AddressLine1, &address.AddressLine2, &address.City, &address.State, &address.Country, &address.ZipCode, &address.IsDefault, &address.Updated, &address.Created)
+		if err == sql.ErrNoRows {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Address not found or does not belong to the user"})
+			return
+		} else if err != nil {
+			l.DebugF("Error updating address: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Could not update address"})
 			return
 		}
 
-		if updateResult.MatchedCount == 0 {
-			l.DebugF("Error: %v", err)
-			c.JSON(http.StatusNotFound, gin.H{"error": "Address not found or does not belong to the user"})
-			return
-		}
-
-		c.JSON(http.StatusOK, gin.H{"success": true, "message": "Address has been updated successfully!"})
+		c.JSON(http.StatusOK, gin.H{"success": true, "message": "Address has been updated successfully!", "address": address})
 	}
 }
 
+// DeleteAddress handles the deletion of an address.
 func DeleteAddress(app *conf.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		addressID, err := primitive.ObjectIDFromHex(c.Param("id"))
+		addressIDStr := c.Param("id")
+		addressID, err := uuid.Parse(addressIDStr)
 		if err != nil {
-			l.DebugF("Error: %v", err)
+			l.DebugF("Invalid address ID: %v", err)
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid address ID"})
 			return
 		}
 
-		userID, exists := c.Get("userID")
-		if !exists {
-			l.DebugF("Error: %v", err)
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		userIDStr := c.MustGet("userID").(string)
+		userID, err := uuid.Parse(userIDStr)
+		if err != nil {
+			l.DebugF("Invalid user ID: %v", err)
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
 			return
 		}
 
-		filter := bson.M{"_id": addressID, "user": userID}
-		deleteResult, err := app.AddressCollection.DeleteOne(c, filter)
+		result, err := app.DB.Exec("DELETE FROM addresses WHERE id = $1 AND user_id = $2", addressID, userID)
 		if err != nil {
-			l.DebugF("Error: %v", err)
+			l.DebugF("Error deleting address: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Could not delete address"})
 			return
 		}
 
-		if deleteResult.DeletedCount == 0 {
-			l.DebugF("Error: %v", err)
-			c.JSON(http.StatusNotFound, gin.H{"error": "Address not found or does not belong to the user"})
+		rowsAffected, err := result.RowsAffected()
+		if err != nil {
+			l.DebugF("Error getting rows affected: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Could not delete address"})
+			return
+		}
+
+		if rowsAffected == 0 {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Address not found or does not belong to user"})
 			return
 		}
 
@@ -210,44 +294,112 @@ func DeleteAddress(app *conf.Config) gin.HandlerFunc {
 
 func SetDefaultAddress(app *conf.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		addressID, err := primitive.ObjectIDFromHex(c.Param("id"))
+		addressIDStr := c.Param("id")
+		addressID, err := uuid.Parse(addressIDStr)
 		if err != nil {
-			l.DebugF("Error: %v", err)
+			l.DebugF("Error parsing address ID: %v", err)
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid address ID"})
 			return
 		}
 
-		userID, exists := c.Get("userID")
-		if !exists {
-			l.DebugF("Error: %v", err)
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
-			return
-		}
-		objectIdUserId, err := primitive.ObjectIDFromHex(userID.(string))
+		userIDStr := c.MustGet("userID").(string)
+		userID, err := uuid.Parse(userIDStr)
 		if err != nil {
-			l.DebugF("Error: %v", err)
+			l.DebugF("Error parsing user ID: %v", err)
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
 			return
 		}
 
-		_, err = app.AddressCollection.UpdateMany(c, bson.M{"user": objectIdUserId}, bson.M{"$set": bson.M{"isDefault": false}})
+		tx, err := app.DB.Begin()
 		if err != nil {
-			l.DebugF("Error: %v", err)
+			l.DebugF("Error starting transaction: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Could not start transaction"})
+			return
+		}
+
+		defer func() {
+			if p := recover(); p != nil {
+				tx.Rollback()
+				l.DebugF("Recovered from panic: %v", p)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "An unexpected error occurred"})
+			}
+		}()
+
+		result, err := tx.Exec("UPDATE addresses SET is_default = FALSE WHERE user_id = $1", userID)
+		if err != nil {
+			l.DebugF("Error updating default address: %v", err)
+			tx.Rollback()
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Could not update addresses"})
 			return
 		}
 
-		var address Address
-		err = app.AddressCollection.FindOneAndUpdate(c, bson.M{"_id": addressID, "user": objectIdUserId}, bson.M{"$set": bson.M{"isDefault": true}}, options.FindOneAndUpdate().SetReturnDocument(options.After)).Decode(&address)
-		if err == mongo.ErrNoDocuments {
-			c.JSON(http.StatusNotFound, gin.H{"message": "Cannot find Address with the id: " + c.Param("id")})
+		rowsAffected, err := result.RowsAffected()
+		if err != nil {
+			l.DebugF("Error fetching rows affected: %v", err)
+			tx.Rollback()
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Could not update addresses"})
 			return
-		} else if err != nil {
-			l.DebugF("Error: %v", err)
+		}
+
+		if rowsAffected == 0 {
+			tx.Rollback()
+			c.JSON(http.StatusNotFound, gin.H{"error": "No addresses found for the user"})
+			return
+		}
+
+		result, err = tx.Exec("UPDATE addresses SET is_default = TRUE, updated = $1 WHERE id = $2 AND user_id = $3", time.Now(), addressID, userID)
+		if err != nil {
+			l.DebugF("Error setting new default address: %v", err)
+			tx.Rollback()
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Could not update address"})
 			return
 		}
 
-		c.JSON(http.StatusOK, gin.H{"success": true, "message": "Address has been set as default successfully!", "address": address})
+		rowsAffected, err = result.RowsAffected()
+		if err != nil {
+			l.DebugF("Error fetching rows affected: %v", err)
+			tx.Rollback()
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Could not update address"})
+			return
+		}
+
+		if rowsAffected == 0 {
+			tx.Rollback()
+			c.JSON(http.StatusNotFound, gin.H{"error": "Address not found or does not belong to the user"})
+			return
+		}
+		var selectedDefaultAddress Address
+		err = tx.QueryRow("SELECT id, user_id, address_line1, address_line2, city, state, country, zip_code, is_default, updated, created FROM addresses WHERE id = $1", addressID).Scan(
+			&selectedDefaultAddress.ID,
+			&selectedDefaultAddress.UserID,
+			&selectedDefaultAddress.AddressLine1,
+			&selectedDefaultAddress.AddressLine2,
+			&selectedDefaultAddress.City,
+			&selectedDefaultAddress.State,
+			&selectedDefaultAddress.Country,
+			&selectedDefaultAddress.ZipCode,
+			&selectedDefaultAddress.IsDefault,
+			&selectedDefaultAddress.Updated,
+			&selectedDefaultAddress.Created,
+		)
+		if err != nil {
+			l.DebugF("Error fetching selected default address: %v", err)
+			tx.Rollback()
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Could not fetch selected default address"})
+			return
+		}
+
+		err = tx.Commit()
+		if err != nil {
+			l.DebugF("Error committing transaction: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Could not commit transaction"})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"success": true,
+			"message": "Address has been set as default successfully!",
+			"address": selectedDefaultAddress,
+		})
 	}
 }

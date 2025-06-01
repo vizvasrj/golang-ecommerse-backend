@@ -5,56 +5,85 @@ import (
 	"src/pkg/module/cart"
 	"time"
 
-	"go.mongodb.org/mongo-driver/bson/primitive"
+	"github.com/google/uuid"
+	"github.com/lib/pq"
 )
 
-type Address struct {
-	ID        primitive.ObjectID `bson:"_id,omitempty" json:"_id,omitempty"`
-	User      primitive.ObjectID `bson:"user,omitempty" json:"user,omitempty"`
-	Address   string             `bson:"address,omitempty" json:"address,omitempty"`
-	City      string             `bson:"city,omitempty" json:"city,omitempty"`
-	State     string             `bson:"state,omitempty" json:"state,omitempty"`
-	Country   string             `bson:"country,omitempty" json:"country,omitempty"`
-	ZipCode   string             `bson:"zipCode,omitempty" json:"zipCode,omitempty"`
-	IsDefault bool               `bson:"isDefault,omitempty" json:"isDefault,omitempty"`
-	Updated   time.Time          `bson:"updated,omitempty" json:"updated,omitempty"`
-	Created   time.Time          `bson:"created,omitempty" json:"created,omitempty"`
-}
-
 type Order struct {
-	ID       primitive.ObjectID `bson:"_id,omitempty" json:"_id,omitempty"`
-	Cart     primitive.ObjectID `bson:"cart,omitempty" json:"cart,omitempty"`
-	User     primitive.ObjectID `bson:"user,omitempty" json:"user,omitempty"`
-	Total    float64            `bson:"total,omitempty" json:"total,omitempty"`
-	Updated  time.Time          `bson:"updated,omitempty" json:"updated,omitempty"`
-	Created  time.Time          `bson:"created,omitempty" json:"created,omitempty"`
-	Address  Address            `bson:"address,omitempty" json:"address,omitempty"`
-	Products []cart.GetCartItem `bson:"products,omitempty" json:"products,omitempty"`
+	ID        uuid.UUID   `db:"id" json:"_id"`
+	CartID    uuid.UUID   `db:"cart_id" json:"cartId"`
+	UserID    uuid.UUID   `db:"user_id" json:"userId"`
+	AddressID uuid.UUID   `db:"address_id" json:"addressId"`
+	Total     float64     `db:"total" json:"total"`
+	Updated   pq.NullTime `db:"updated" json:"updated"`
+	Created   time.Time   `db:"created" json:"created"`
 }
 
-type OrderAdd struct {
-	UserID  primitive.ObjectID `json:"userId"`
-	CartID  string             `json:"cartId"`
-	Total   float64            `json:"total"`
-	Address Address            `json:"address"`
+type OrderItem struct {
+	ID            uuid.UUID           `db:"id" json:"_id"`
+	OrderID       uuid.UUID           `db:"order_id" json:"orderId"`
+	ProductID     uuid.UUID           `db:"product_id" json:"productId"`
+	Quantity      int                 `db:"quantity" json:"quantity"`
+	PurchasePrice float64             `db:"purchase_price" json:"purchasePrice"`
+	Status        cart.CartItemStatus `db:"status" json:"status"` // Assuming CartItemStatus is defined similarly in cart2
+	UpdatedAt     time.Time           `db:"updated" json:"updated"`
+	CreatedAt     time.Time           `db:"created" json:"created"`
 }
 
-type OrderGet struct {
-	ID       primitive.ObjectID `bson:"_id,omitempty" json:"_id,omitempty"`
-	Cart     primitive.ObjectID `bson:"cart,omitempty" json:"cart,omitempty"`
-	User     primitive.ObjectID `bson:"user,omitempty" json:"user,omitempty"`
-	Total    float64            `bson:"total,omitempty" json:"total,omitempty"`
-	Updated  time.Time          `bson:"updated,omitempty" json:"updated,omitempty"`
-	Created  time.Time          `bson:"created,omitempty" json:"created,omitempty"`
-	Address  Address            `bson:"address,omitempty" json:"address,omitempty"`
-	Products []cart.CartItem    `bson:"products,omitempty" json:"products,omitempty"`
+// type OrderRequest struct {
+// 	CartID    uuid.UUID `json:"cartId" binding:"required"`
+// 	Total     float64   `json:"total" binding:"required"`
+// 	AddressID uuid.UUID `json:"addressId" binding:"required"`
+// }
+
+// type AddOrderWithCartItemAndAddressRequest struct {
+// 	CartID    uuid.UUID `json:"cartId" binding:"required"`
+// 	AddressID uuid.UUID `json:"addressId" binding:"required"`
+// }
+
+// type CartProduct struct {
+// 	product.Product      // Embed the product struct
+// 	CartItemQuantity int `db:"cart_item_quantity" json:"cartItemQuantity"` // Add the quantity from cart_items
+// }
+
+// type OrderGet struct {
+// 	ID       uuid.UUID        `db:"id" json:"Id"`
+// 	CartID   uuid.UUID        `db:"cart_id" json:"cart"`
+// 	UserID   uuid.UUID        `db:"user_id" json:"user"`
+// 	Total    float64          `db:"total" json:"total"`
+// 	Updated  pq.NullTime      `db:"updated" json:"updated"`
+// 	Created  time.Time        `db:"created" json:"created"`
+// 	Address  address2.Address `json:"address"`  // Use your existing address struct
+// 	Products []cart2.CartItem `json:"products"` // From cart2 package
+// }
+
+type OrderInfo struct { // Struct for fetching additional details
+	ID       uuid.UUID       `json:"_id"`
+	CartID   uuid.UUID       `json:"cartId"`
+	UserID   uuid.UUID       `json:"userId"`
+	Total    float64         `json:"total"`
+	Updated  pq.NullTime     `json:"updated"`
+	Created  time.Time       `json:"created"`
+	Address  address.Address `json:"address"`
+	Products []cart.CartItem `json:"products"`
 }
 
-// uses in order add new api
-type newOrder struct {
-	UserID  primitive.ObjectID `json:"userId"`
-	CartID  primitive.ObjectID `json:"cartId"`
-	Total   float64            `json:"total"`
-	Address address.Address    `json:"address"`
-	Created time.Time          `json:"created"`
+// // Request Structs
+
+type AddOrderRequest struct {
+	CartID    uuid.UUID `json:"cartId" binding:"required"`
+	Total     float64   `json:"total" binding:"required"`
+	AddressID uuid.UUID `json:"addressId" binding:"required"`
+}
+
+type AddOrder2Request struct { // Request struct for AddOrderWithCartItemAndAddress
+	CartID uuid.UUID `json:"cartId" binding:"required"`
+	// AddressID uuid.UUID `json:"addressId" binding:"required"`
+	Address address.Address `json:"address" binding:"required"`
+}
+
+type UpdateOrderItemStatusRequest struct {
+	OrderID uuid.UUID           `json:"orderId" binding:"required"`
+	CartID  uuid.UUID           `json:"cartId" binding:"required"`
+	Status  cart.CartItemStatus `json:"status"`
 }

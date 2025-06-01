@@ -38,5 +38,16 @@ func SetupRoute(path string, r *gin.RouterGroup, app *conf.Config) {
 			middleware.RoleCheck(common.RoleAdmin),
 			DeleteCategory(app))
 
+		category_route.PUT("/product/:product_id/add",
+			middleware.AuthMiddleware(app),
+			middleware.RoleCheck(common.RoleAdmin),
+			AddProductToCategory(app))
+
+		category_route.DELETE("/:category_id/product/:product_id",
+			middleware.AuthMiddleware(app),
+			middleware.RoleCheck(common.RoleAdmin),
+			RemoveProductFromCategory(app),
+		)
+
 	}
 }

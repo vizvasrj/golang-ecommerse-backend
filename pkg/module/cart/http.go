@@ -1,160 +1,231 @@
 package cart
 
 import (
-	"fmt"
+	"context"
+	"database/sql"
 	"net/http"
-	"src/l"
-	"src/pkg/conf"
-	"src/pkg/module/product"
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/bson/primitive"
-	"go.mongodb.org/mongo-driver/mongo/options"
+	"github.com/google/uuid"
+
+	"src/l"
+	"src/pkg/conf"
+	"src/pkg/module/product"
 )
 
-func AddToCart(app *conf.Config) gin.HandlerFunc {
+func CreateCart(app *conf.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var cartProduct AddProductToCartRequest
 		if err := c.ShouldBindJSON(&cartProduct); err != nil {
-			l.DebugF("Error: %v", err)
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
 			return
 		}
-		// l.DebugF("a %v", a)
 
-		userID, err := primitive.ObjectIDFromHex(c.GetString("userID"))
+		userIDStr := c.GetString("userID")
+		userID, err := uuid.Parse(userIDStr)
 		if err != nil {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
-			return
-		}
-		// l.DebugF("reqBody %v", reqBody)
-		// products := CalculateItemsSalesTax(reqBody.Products)
-
-		cart := GetCart{
-			ID:       primitive.NewObjectID(),
-			User:     userID,
-			Products: []GetCartItem{{Product: cartProduct.Product, Quantity: cartProduct.Quantity}},
-			Updated:  time.Now(),
-			Created:  time.Now(),
-		}
-		l.DebugF("cart %v", cart)
-
-		cartDoc, err := app.CartCollection.InsertOne(c, cart)
-		if err != nil {
-			l.DebugF("Error: %v", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Your request could not be processed. Please try again."})
-			return
-		}
-
-		// err = store.DecreaseQuantity(products)
-		// if err != nil {
-		// l.DebugF("Error: %v", err)
-		// 	c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to decrease product quantity"})
-		// 	return
-		// }
-
-		c.JSON(http.StatusOK, gin.H{
-			"success": true,
-			"cartId":  cartDoc.InsertedID,
-		})
-	}
-}
-
-func DeleteCart(app *conf.Config) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		cartIDhex := c.Param("cartId")
-		cartID, err := primitive.ObjectIDFromHex(cartIDhex)
-		if err != nil {
-			l.DebugF("Error: %v", err)
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid cart ID"})
-			return
-		}
-		userID, err := primitive.ObjectIDFromHex(c.GetString("userID"))
-		if err != nil {
-			l.DebugF("Error: %v", err)
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
 			return
 		}
 
-		count, err := app.CartCollection.CountDocuments(c, bson.M{"_id": cartID, "user": userID})
+		ctx := context.Background()
+		tx, err := app.DB.BeginTx(ctx, nil)
 		if err != nil {
-			l.DebugF("Error: %v", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Internal server error"})
+			l.ErrorF("Transaction begin error: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to start transaction"})
 			return
 		}
-		if count == 0 {
+		defer tx.Rollback() // Defer rollback in case of any errors
+
+		newCartID := uuid.New()
+		_, err = tx.ExecContext(ctx, "INSERT INTO carts (id, user_id, created, updated) VALUES ($1, $2, $3, $4)", newCartID, userID, time.Now(), time.Now())
+		if err != nil {
+			l.ErrorF("Error creating cart: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create cart"})
+			return
+		}
+
+		newCartItemID := uuid.New()
+
+		_, err = tx.ExecContext(ctx, `
+			INSERT INTO cart_items (id, cart_id, product_id, quantity, purchase_price, created, updated)
+			SELECT $1, $2, $3, $4, p.price, $5, $6  -- Get price directly from products table
+			FROM products p
+			WHERE p.id = $3
+		`, newCartItemID, newCartID, cartProduct.ProductID, cartProduct.Quantity, time.Now(), time.Now())
+		if err != nil {
+			l.ErrorF("Error adding item to cart: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to add item to cart"})
+			return
+		}
+
+		if err := tx.Commit(); err != nil { // Commit transaction
+
+			l.ErrorF("Error committing transaction: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to commit transaction"})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{"success": true, "cart_id": newCartID})
+
+	}
+}
+
+// DeleteCart function (updated below)
+// AddProductToCart function (updated below)
+
+func DeleteCart(app *conf.Config) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		cartIDStr := c.Param("cartId")
+		cartID, err := uuid.Parse(cartIDStr)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid cart ID"})
+			return
+		}
+
+		userIDStr := c.GetString("userID")
+		userID, err := uuid.Parse(userIDStr)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
+			return
+		}
+
+		ctx := context.Background()
+		tx, err := app.DB.BeginTx(ctx, nil) // Start transaction
+		if err != nil {
+			l.ErrorF("Error beginning transaction: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to start transaction"})
+			return
+		}
+		defer tx.Rollback()
+
+		var cartExists bool
+		err = tx.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM carts WHERE id = $1 AND user_id = $2)", cartID, userID).Scan(&cartExists)
+
+		if err != nil {
+			l.ErrorF("Error checking cart existence: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check cart ownership"})
+			return
+		}
+		if !cartExists {
+
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized access"})
 			return
 		}
 
-		_, err = app.CartCollection.DeleteOne(c, bson.M{"_id": cartID})
+		_, err = tx.ExecContext(ctx, "DELETE FROM cart_items WHERE cart_id = $1", cartID) // Corrected table name
 		if err != nil {
-			l.DebugF("Error: %v", err)
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Your request could not be processed. Please try again."})
+			l.ErrorF("Error deleting cart items: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete cart items"})
 			return
 		}
+
+		_, err = tx.ExecContext(ctx, "DELETE FROM carts WHERE id = $1 AND user_id = $2", cartID, userID)
+		if err != nil {
+			l.ErrorF("Error deleting cart: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete cart"})
+			return
+		}
+
+		if err := tx.Commit(); err != nil { // Commit transaction
+			l.ErrorF("Error committing transaction: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to commit transaction"})
+			return
+		}
+
 		c.JSON(http.StatusOK, gin.H{"success": true})
+
 	}
 }
 
 func AddProductToCart(app *conf.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		cartIDhex := c.Param("cartId")
-		cartID, err := primitive.ObjectIDFromHex(cartIDhex)
+		cartIDStr := c.Param("cartId")
+		cartID, err := uuid.Parse(cartIDStr)
 		if err != nil {
-			l.DebugF("Error: %v", err)
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid cart ID"})
 			return
 		}
 
-		var cart GetCart
-		cartFilter := bson.M{"_id": cartID}
-		err = app.CartCollection.FindOne(c, cartFilter).Decode(&cart)
+		userIDStr := c.GetString("userID")
+		userID, err := uuid.Parse(userIDStr)
 		if err != nil {
-			l.DebugF("Error: %v", err)
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Cart not found"})
-			return
-		}
-		userID, err := primitive.ObjectIDFromHex(c.GetString("userID"))
-		if err != nil {
-			l.DebugF("Error: %v", err)
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
 			return
 		}
-		if cart.User != userID {
+
+		var cartItem CartItemRequest // Updated struct name
+		if err := c.ShouldBindJSON(&cartItem); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid cart item data"})
+			return
+		}
+
+		ctx := context.Background()
+		tx, err := app.DB.BeginTx(ctx, nil) // Start transaction
+		if err != nil {
+			l.ErrorF("Error beginning transaction: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to begin transaction"})
+			return
+		}
+		defer tx.Rollback() // Defer rollback
+
+		// Check if cart exists and belongs to the user
+		var cartExists bool
+
+		err = tx.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM carts WHERE id = $1 AND user_id = $2)", cartID, userID).Scan(&cartExists)
+
+		if err != nil {
+
+			l.ErrorF("Error checking cart existence: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to verify cart ownership"})
+			return
+		}
+
+		if !cartExists {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized access"})
 			return
 		}
 
-		var cartItem GetCartItem
+		// Check if the product already exists in the cart
+		var existingCartItem CartItem
+		err = tx.QueryRowContext(ctx, `SELECT id, quantity FROM cart_items WHERE cart_id = $1 AND product_id = $2`, cartID, cartItem.ProductID).Scan(&existingCartItem.ID, &existingCartItem.Quantity)
 
-		if err := c.ShouldBindJSON(&cartItem); err != nil {
-			l.DebugF("Error: %v", err)
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid product data"})
+		if err != nil && err != sql.ErrNoRows {
+			l.DebugF("Error checking for existing cart item: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check for existing item in cart"})
 			return
 		}
 
-		// verify product exists or not
-		count, err := app.ProductCollection.CountDocuments(c, bson.M{"_id": cartItem.Product})
-		if err != nil {
-			l.DebugF("Error: %v", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Internal server error"})
-			return
-		}
-		if count == 0 {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Product not found"})
-			return
+		if err == sql.ErrNoRows {
+			// Product doesn't exist in cart, insert new item
+
+			newCartItemID := uuid.New()
+			_, err = tx.ExecContext(ctx, `
+				INSERT INTO cart_items (id, cart_id, product_id, quantity, purchase_price, created, updated)
+				SELECT $1, $2, $3, $4, p.price, $5, $6 
+				FROM products p
+				WHERE p.id = $3
+			`, newCartItemID, cartID, cartItem.ProductID, cartItem.Quantity, time.Now(), time.Now())
+			if err != nil {
+				l.ErrorF("Error inserting new cart item: %v", err)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to add item to cart"})
+				return
+			}
+		} else {
+			// Product exists in cart, update quantity
+
+			_, err = tx.ExecContext(ctx, "UPDATE cart_items SET quantity = quantity + $1, updated = $2 WHERE id = $3", cartItem.Quantity, time.Now(), existingCartItem.ID)
+			if err != nil {
+				l.ErrorF("Error updating cart item quantity: %v", err)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update cart"})
+				return
+			}
 		}
 
-		filter := bson.M{"_id": cartID}
-		update := bson.M{"$push": bson.M{"products": cartItem}}
-
-		_, err = app.CartCollection.UpdateOne(c, filter, update, options.Update().SetUpsert(true))
-		if err != nil {
-			l.DebugF("Error: %v", err)
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Your request could not be processed. Please try again."})
+		if err := tx.Commit(); err != nil { // Commit transaction
+			l.ErrorF("Error committing transaction: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to commit transaction"})
 			return
 		}
 
@@ -164,275 +235,427 @@ func AddProductToCart(app *conf.Config) gin.HandlerFunc {
 
 func RemoveProductFromCart(app *conf.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		cartIDhex := c.Param("cartId")
-		cartID, err := primitive.ObjectIDFromHex(cartIDhex)
+		cartIDStr := c.Query("cartId")
+		cartID, err := uuid.Parse(cartIDStr)
 		if err != nil {
-			l.DebugF("Error: %v", err)
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid cart ID"})
 			return
 		}
 
-		var cart GetCart
-		cartFilter := bson.M{"_id": cartID}
-		err = app.CartCollection.FindOne(c, cartFilter).Decode(&cart)
+		userIDStr := c.GetString("userID")
+		userID, err := uuid.Parse(userIDStr)
 		if err != nil {
-			l.DebugF("Error: %v", err)
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Cart not found"})
-			return
-		}
-		userID, err := primitive.ObjectIDFromHex(c.GetString("userID"))
-		if err != nil {
-			l.DebugF("Error: %v", err)
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
 			return
 		}
-		if cart.User != userID {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized access"})
-			return
-		}
 
-		productIDhex := c.Param("productId")
-		productID, err := primitive.ObjectIDFromHex(productIDhex)
+		productIDStr := c.Query("productId")
+		productID, err := uuid.Parse(productIDStr)
 		if err != nil {
-			l.DebugF("Error: %v", err)
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid product ID"})
 			return
 		}
-		product := bson.M{"product": productID}
-		filter := bson.M{"_id": cartID}
-		update := bson.M{"$pull": bson.M{"products": product}}
 
-		_, err = app.CartCollection.UpdateOne(c, filter, update)
+		ctx := context.Background()
+		tx, err := app.DB.BeginTx(ctx, nil) // Start a transaction
 		if err != nil {
-			l.DebugF("Error: %v", err)
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Your request could not be processed. Please try again."})
+			l.ErrorF("Transaction start failed: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to start transaction"})
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"success": true})
+		defer tx.Rollback() // Ensure rollback on error
+
+		// Verify cart ownership within the transaction
+		var cartExists bool
+		err = tx.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM carts WHERE id = $1 AND user_id = $2)", cartID, userID).Scan(&cartExists)
+		if err != nil {
+			l.ErrorF("Error checking for cart: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to verify cart ownership"})
+			return
+		}
+		if !cartExists {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+			return
+		}
+
+		result, err := tx.ExecContext(ctx, "DELETE FROM cart_items WHERE cart_id = $1 AND product_id = $2", cartID, productID)
+
+		if err != nil {
+			l.ErrorF("Error removing product from cart: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to remove product from cart"})
+			return
+		}
+
+		rowsAffected, err := result.RowsAffected()
+		if err != nil {
+			l.ErrorF("Error getting rows affected: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get rows affected"})
+			return
+		}
+		if rowsAffected == 0 {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Product not found in cart"})
+			return
+		}
+
+		if err := tx.Commit(); err != nil {
+			l.ErrorF("Transaction commit failed: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to commit transaction"})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{"success": true, "message": "Product removed from cart"})
 	}
 }
 
-// this function will do every thing
 func AddProductToCartV2(app *conf.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// Extract cart ID and user ID
-		cartID, err := extractCartID(c)
+		// Extract cart ID, create a new one if it doesn't exist
+		cartID, err := uuid.Parse(c.Query("cartId"))
 		if err != nil {
+			l.DebugF("Error parsing cart ID: %v", err)
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid cart ID"})
 			return
 		}
-		l.DebugF("cartID %v", cartID)
+		// ... (userID and cartItem parsing - same as before)
 
-		userID, err := extractUserID(c)
+		userIDStr := c.GetString("userID")
+		userID, err := uuid.Parse(userIDStr)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
 			return
 		}
-		l.DebugF("userID %v", userID)
 
-		// Parse the cart item from request
-		cartItem, err := parseCartItem(c)
+		var cartItem CartItemRequest // Correct name
+		if err := c.ShouldBindJSON(&cartItem); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid product data"})
+			return
+		}
+
+		// ... (verify product exists - update function to use sqlx and UUID)
+
+		var productExists bool
+
+		err = app.DB.QueryRow("SELECT EXISTS (SELECT 1 FROM products WHERE id = $1)", cartItem.ProductID).Scan(&productExists)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+
+			l.ErrorF("Error checking product existence: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to verify product existence"})
 			return
 		}
-		l.DebugF("cartItem %v", cartItem)
 
-		// Verify product existence
-		if err := verifyProductExists(app, c, cartItem.Product); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		if !productExists {
+
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Product not found"})
 			return
 		}
-		l.DebugF("product exists")
 
-		if cartID.IsZero() {
-			// Create a new cart if no cart ID is provided
-			handleNewCart(app, c, userID, cartItem)
-			return
-		}
-		l.DebugF("cartID not zero")
-
-		// Handle existing cart logic
-		handleExistingCart(app, c, cartID, userID, cartItem)
-	}
-}
-
-func extractCartID(c *gin.Context) (primitive.ObjectID, error) {
-	cartIDhex := c.Query("cartId")
-	if cartIDhex == "" || cartIDhex == "null" {
-		return primitive.NilObjectID, nil // No cart ID provided
-	}
-	return primitive.ObjectIDFromHex(cartIDhex)
-}
-
-func extractUserID(c *gin.Context) (primitive.ObjectID, error) {
-	userIDStr := c.GetString("userID")
-	if userIDStr == "" {
-		return primitive.NilObjectID, nil // User not logged in
-	}
-	return primitive.ObjectIDFromHex(userIDStr)
-}
-
-func parseCartItem(c *gin.Context) (GetCartItem, error) {
-	var cartItem GetCartItem
-	if err := c.ShouldBindJSON(&cartItem); err != nil {
-		return cartItem, fmt.Errorf("invalid product data")
-	}
-	return cartItem, nil
-}
-
-func verifyProductExists(app *conf.Config, c *gin.Context, productID primitive.ObjectID) error {
-	count, err := app.ProductCollection.CountDocuments(c, bson.M{"_id": productID})
-	if err != nil || count == 0 {
-		return fmt.Errorf("product not found")
-	}
-	return nil
-}
-
-func handleNewCart(app *conf.Config, c *gin.Context, userID primitive.ObjectID, cartItem GetCartItem) {
-	newCart := GetCart{
-		ID:       primitive.NewObjectID(),
-		User:     userID,
-		Products: []GetCartItem{cartItem},
-	}
-
-	_, err := app.CartCollection.InsertOne(c, newCart)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create cart"})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Cart created and product added", "cartId": newCart.ID.Hex()})
-}
-
-func handleExistingCart(app *conf.Config, c *gin.Context, cartID, userID primitive.ObjectID, cartItem GetCartItem) {
-	var cart GetCart
-	err := app.CartCollection.FindOne(c, bson.M{"_id": cartID}).Decode(&cart)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Cart not found"})
-		return
-	}
-
-	if !cart.User.IsZero() && cart.User != userID {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized access"})
-		return
-	}
-
-	if cart.User.IsZero() && !userID.IsZero() {
-		// Associate the cart with the logged-in user
-		_, err = app.CartCollection.UpdateOne(
-			c,
-			bson.M{"_id": cartID},
-			bson.M{"$set": bson.M{"user": userID}},
-		)
+		ctx := context.Background()
+		tx, err := app.DB.BeginTx(ctx, nil)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to associate cart with user"})
+
+			l.ErrorF("Error beginning transaction: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to start transaction"})
 			return
 		}
-	}
+		defer tx.Rollback() // Defer transaction rollback
 
-	// Check if the product already exists in the cart
-	found := false
-	for i, existingItem := range cart.Products {
-		if existingItem.Product == cartItem.Product {
-			// Product already exists, update its quantity
-			cart.Products[i].Quantity += cartItem.Quantity
-			found = true
-			break
+		if cartID == uuid.Nil {
+			// Create new cart
+
+			cartID = uuid.New()
+			_, err = tx.ExecContext(ctx, "INSERT INTO carts (id, user_id, created, updated) VALUES ($1, $2, $3, $4)", cartID, userID, time.Now(), time.Now())
+
+			if err != nil {
+
+				l.ErrorF("Error creating cart: %v", err)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create cart"})
+				return
+			}
+
+			// Insert cart item
+			_, err = tx.ExecContext(ctx, `INSERT INTO cart_items (cart_id, product_id, quantity, purchase_price, created, updated)
+											SELECT $1, $2, $3, p.price, $4, $5
+											FROM products p
+											WHERE p.id = $2`, cartID, cartItem.ProductID, cartItem.Quantity, time.Now(), time.Now())
+
+			if err != nil {
+				l.ErrorF("Error adding item to new cart: %v", err)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to add item to cart"})
+				return
+			}
+
+		} else {
+
+			var cart Cart
+			err = tx.QueryRowContext(ctx, "SELECT id, user_id FROM carts WHERE id = $1", cartID).Scan(&cart.ID, &cart.UserID)
+
+			if err != nil {
+				if err == sql.ErrNoRows {
+					c.JSON(http.StatusNotFound, gin.H{"error": "Cart not found"})
+
+				} else {
+
+					l.ErrorF("Error fetching cart: %v", err)
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch cart"})
+				}
+				return
+			}
+
+			if cart.UserID != userID {
+				c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized access"})
+				return
+			}
+
+			// Check if item exists to update or insert
+
+			var existingCartItem CartItem
+
+			err = tx.QueryRowContext(ctx, `
+				SELECT id, quantity 
+				FROM cart_items 
+				WHERE cart_id = $1 AND product_id = $2
+			`, cartID, cartItem.ProductID).Scan(&existingCartItem.ID, &existingCartItem.Quantity)
+
+			if err != nil {
+
+				if err == sql.ErrNoRows {
+
+					_, err = tx.ExecContext(ctx, `
+						INSERT INTO cart_items (cart_id, product_id, quantity, purchase_price, created, updated)
+						SELECT $1, $2, $3, p.price, $4, $5
+						FROM products p
+						WHERE p.id = $2
+					`, cartID, cartItem.ProductID, cartItem.Quantity, time.Now(), time.Now())
+					if err != nil {
+						// Handle insert error
+						l.ErrorF("Error inserting new cart item: %v", err)
+						c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to add new item to cart"})
+						return
+					}
+
+				} else {
+
+					l.ErrorF("Error fetching cart item: %v", err)
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch existing cart item"})
+					return
+				}
+
+			} else {
+				// Update existing item
+				// TODO if there is increment or replace do as it so/else
+				if cartItem.Action == "replace" {
+					_, err := tx.ExecContext(ctx, `
+						UPDATE cart_items
+						SET quantity = $1, updated = $2
+						WHERE id = $3
+					`, cartItem.Quantity, time.Now(), existingCartItem.ID)
+					if err != nil {
+						l.ErrorF("Error updating cart item: %v", err)
+						c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update cart item"})
+						return
+					}
+				} else {
+					_, err := tx.ExecContext(ctx, `
+						UPDATE cart_items
+						SET quantity = quantity + $1, updated = $2
+						WHERE id = $3
+					`, cartItem.Quantity, time.Now(), existingCartItem.ID)
+					if err != nil {
+						l.ErrorF("Error updating cart item: %v", err)
+						c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update cart item"})
+						return
+					}
+
+				}
+			}
 		}
-	}
 
-	if found {
-		// Update the cart with the modified product list
-		_, err = app.CartCollection.UpdateOne(
-			c,
-			bson.M{"_id": cartID},
-			bson.M{
-				"$set": bson.M{
-					"products": cart.Products,
-					"updated":  time.Now(),
-				},
-			},
-		)
-	} else {
-		// Product does not exist, append it to the cart
-		_, err = app.CartCollection.UpdateOne(
-			c,
-			bson.M{"_id": cartID},
-			bson.M{
-				"$push": bson.M{"products": cartItem},
-				"$set":  bson.M{"updated": time.Now()},
-			},
-		)
-	}
+		if err := tx.Commit(); err != nil {
+			l.ErrorF("Error committing transaction: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to commit transaction"})
+			return
+		}
 
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update cart"})
-		return
+		c.JSON(http.StatusOK, gin.H{"success": true, "cart_id": cartID.String()})
 	}
-
-	err = app.CartCollection.FindOne(c, bson.M{"_id": cartID}).Decode(&cart)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve updated cart"})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{"success": true, "cart": cart, "cartId": cart.ID.Hex()})
 }
+
+// ... GetCartByCartID and other functions (updated below)
 
 func GetCartByCartID(app *conf.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		cartIDhex := c.Param("cartId")
-		cartID, err := primitive.ObjectIDFromHex(cartIDhex)
+		cartIDStr := c.Param("cartId")
+		cartID, err := uuid.Parse(cartIDStr)
 		if err != nil {
-			l.DebugF("Error: %v", err)
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid cart ID"})
 			return
 		}
 
-		var cart GetCart
-		cartFilter := bson.M{"_id": cartID}
-		err = app.CartCollection.FindOne(c, cartFilter).Decode(&cart)
-		if err != nil {
-			l.DebugF("Error: %v", err)
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Cart not found"})
-			return
-		}
-		userIDStr := c.GetString("userID")
+		userIDStr := c.GetString("userID") // Get the user ID if available
+		var userID uuid.UUID
 		if userIDStr != "" {
-			userID, err := primitive.ObjectIDFromHex(userIDStr)
+			userID, err = uuid.Parse(userIDStr)
 			if err != nil {
-				l.DebugF("Error: %v", err)
 				c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
 				return
 			}
-
-			if !cart.User.IsZero() && cart.User != userID {
-				c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized access"})
-				return
-			}
 		}
 
-		// get products details that if product is deleted from product collection or not
-		// also need price of that product
-		total := 0.0
-		var products []product.IndividualProduct
-		for _, _product := range cart.Products {
-			var productDoc product.IndividualProduct
-			err = app.ProductCollection.FindOne(c, bson.M{"_id": _product.Product}).Decode(&productDoc)
+		// Use a transaction to ensure consistent reads
+		ctx := context.Background()
+		tx, err := app.DB.BeginTx(ctx, &sql.TxOptions{ReadOnly: true}) // Read-only transaction
+		if err != nil {
+			l.ErrorF("Transaction begin error: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to start transaction"})
+			return
+		}
+		defer tx.Rollback() // Rollback is a no-op for read-only transactions but good practice
+
+		var cartExists bool
+		err = tx.QueryRowContext(ctx, "SELECT EXISTS (SELECT 1 FROM carts WHERE id = $1)", cartID).Scan(&cartExists)
+
+		if err != nil {
+			l.ErrorF("Error checking if cart exists: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check cart"})
+			return
+		}
+
+		if !cartExists {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Cart not found"})
+			return
+		}
+
+		// Check if a user is logged in and if the cart belongs to them
+		if userID != uuid.Nil {
+			var cartUserID uuid.UUID
+			err = tx.QueryRowContext(ctx, "SELECT user_id FROM carts WHERE id = $1", cartID).Scan(&cartUserID)
 			if err != nil {
-				l.DebugF("Error: %v", err)
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "Internal server error"})
+				l.ErrorF("Error fetching cart user ID: %v", err)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to verify cart"})
 				return
 			}
-			totalPrice := productDoc.Price * float64(_product.Quantity)
-			total += totalPrice
-			productDoc.TotalPrice = totalPrice
-			productDoc.Quantity = _product.Quantity
-			products = append(products, productDoc)
-
+			if cartUserID != userID {
+				c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+				return
+			}
 		}
 
-		c.JSON(http.StatusOK, gin.H{"success": true, "cart": products, "total": total})
+		rows, err := tx.QueryContext(ctx, `
+			SELECT 
+				p.id, p.sku, p.name, p.slug, p.image_url, p.description AS product_quantity, p.price,
+				ci.quantity AS cart_item_quantity
+			FROM products p
+			JOIN cart_items ci ON p.id = ci.product_id
+			WHERE ci.cart_id = $1
+		`, cartID)
+		if err != nil {
+			l.ErrorF("Error fetching cart items and products: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve cart items"})
+			return
+		}
+		defer rows.Close()
+
+		type CartProduct struct {
+			product.Product      // Embed the product struct
+			CartItemQuantity int `db:"cart_item_quantity" json:"cart_item_quantity"` // Add the quantity from cart_items
+		}
+
+		cartProducts := []CartProduct{}
+		for rows.Next() {
+			var cartProduct CartProduct
+			err = rows.Scan(&cartProduct.ID, &cartProduct.SKU, &cartProduct.Name, &cartProduct.Slug, &cartProduct.ImageURL, &cartProduct.Description, &cartProduct.Price, &cartProduct.Quantity)
+			if err != nil {
+				l.ErrorF("Error scanning cart items: %v", err)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve cart items"})
+				return
+			}
+			cartProducts = append(cartProducts, cartProduct)
+		}
+
+		c.JSON(http.StatusOK, gin.H{"cart": cartProducts})
+
+	}
+}
+
+// anonymous cart id b15ff32b-a4f0-4e51-9b09-46d58d9a9f18
+
+func AddToCart(app *conf.Config) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req struct {
+			CartID    *uuid.UUID `json:"cart_id"` // Optional (frontend manages)
+			ProductID uuid.UUID  `json:"productId" binding:"required"`
+			Quantity  int        `json:"quantity" binding:"required,gt=0"`
+			Action    string     `json:"action" enums:"increment,replace"`
+		}
+
+		if err := c.ShouldBindJSON(&req); err != nil {
+			l.ErrorF("Error binding request: %v", err)
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
+			return
+		}
+
+		// Get user ID (nil for anonymous users)
+		var userID uuid.UUID
+		if userIDStr := c.GetString("userID"); userIDStr != "" {
+			var err error
+			if userID, err = uuid.Parse(userIDStr); err != nil {
+				c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid user ID"})
+				return
+			}
+		}
+
+		ctx := c.Request.Context()
+		tx, err := app.DB.BeginTx(ctx, nil)
+		if err != nil {
+			l.ErrorF("Transaction begin error: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to start transaction"})
+			return
+		}
+		defer tx.Rollback()
+
+		// Cart ID handling
+		var cartID uuid.UUID
+		if req.CartID != nil {
+			// Validate existing cart ownership
+			valid, err := checkCartOwnership(tx, ctx, *req.CartID, userID)
+			if err != nil || !valid {
+				c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid cart access"})
+				return
+			}
+			cartID = *req.CartID
+		} else {
+			// Create new cart with appropriate ownership
+			cartID = uuid.New()
+			userIDVal := uuid.NullUUID{}
+			if userID != uuid.Nil {
+				userIDVal = uuid.NullUUID{UUID: userID, Valid: true}
+			}
+
+			_, err = tx.ExecContext(ctx, `
+				INSERT INTO carts (id, user_id, created, updated)
+				VALUES ($1, $2, $3, $4)
+			`, cartID, userIDVal, time.Now(), time.Now())
+
+			if err != nil {
+				l.ErrorF("Error creating cart: %v", err)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create cart"})
+				return
+			}
+		}
+
+		// Add/update product in cart
+		if err := updateCartItem(tx, ctx, cartID, req.ProductID, req.Quantity, req.Action); err != nil {
+			l.ErrorF("Error updating cart item: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update cart item"})
+			return
+		}
+
+		if err := tx.Commit(); err != nil {
+			l.ErrorF("Error committing transaction: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to commit transaction"})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{"cart_id": cartID.String()})
 	}
 }

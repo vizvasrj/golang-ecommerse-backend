@@ -14,6 +14,8 @@ func SetupRouter(path string, r *gin.RouterGroup, app *conf.Config) {
 		product_route.GET("/item/:slug", GetProductBySlug(app))
 		product_route.GET("/list/search/:name", SearchProductsByName(app))
 		product_route.GET("/list", FetchStoreProductsByFilters(app))
+
+		// ! this need to some kind of search based?
 		product_route.GET("/list/select", FetchProductNames(app))
 
 		product_route.POST("/add",

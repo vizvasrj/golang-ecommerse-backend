@@ -1,121 +1,145 @@
 package brand
 
 import (
+	"database/sql"
+	"errors"
+	"fmt"
 	"net/http"
-	"src/l"
-	"src/pkg/conf"
+	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
-	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/bson/primitive"
+	"github.com/google/uuid"
+
+	"src/l"
+	"src/pkg/conf"
 )
+
+// HTTP Handlers (Updated for Postgres and sqlx)
 
 func AddBrand(app *conf.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		var brand Brand
+		var brand Brand // Use the Brand struct
+
 		if err := c.ShouldBindJSON(&brand); err != nil {
-			l.DebugF("Error: %v", err)
+			l.DebugF("Binding error: %v", err)
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid input"})
 			return
 		}
 
 		if brand.Name == "" || brand.Description == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "You must enter description & name."})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Name and description are required"})
 			return
 		}
 
-		_, err := app.BrandCollection.InsertOne(c, brand)
+		newBrandID := uuid.New()
+
+		_, err := app.DB.ExecContext(c, `
+			INSERT INTO brands (id, name, slug, image, content_type, description, is_active, updated, created)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		`, newBrandID, brand.Name, brand.Slug, brand.Image, brand.ContentType, brand.Description, brand.IsActive, time.Now(), time.Now())
 		if err != nil {
-			l.DebugF("Error: %v", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Your request could not be processed. Please try again."})
+
+			l.DebugF("Error inserting brand: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to add brand"})
 			return
 		}
+
+		brand.ID = newBrandID // Set the ID
 
 		c.JSON(http.StatusOK, gin.H{"success": true, "message": "Brand has been added successfully!", "brand": brand})
+
 	}
 }
 
-// fetch store brands api
 func ListBrands(app *conf.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		cursor, err := app.BrandCollection.Find(c, bson.M{"isActive": true})
+		query := `
+		SELECT 
+			id, name, slug, image, content_type, description, is_active, updated, created
+		FROM brands WHERE is_active = TRUE
+		`
+		rows, err := app.DB.QueryContext(c, query)
 		if err != nil {
-			l.DebugF("Error: %v", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Your request could not be processed. Please try again."})
+			l.ErrorF("Error querying brands: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch brands"})
 			return
 		}
-		defer cursor.Close(c)
+		defer rows.Close()
 
 		var brands []Brand
-		if err = cursor.All(c, &brands); err != nil {
-			l.DebugF("Error: %v", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Your request could not be processed. Please try again."})
-			return
+		for rows.Next() {
+			var fetchedBrand Brand
+			if err := rows.Scan(&fetchedBrand.ID, &fetchedBrand.Name, &fetchedBrand.Slug, &fetchedBrand.Image, &fetchedBrand.ContentType, &fetchedBrand.Description, &fetchedBrand.IsActive, &fetchedBrand.Updated, &fetchedBrand.Created); err != nil {
+				l.ErrorF("Error scanning brand: %v", err)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch brands"})
+				return
+			}
+			brands = append(brands, fetchedBrand)
 		}
 
 		c.JSON(http.StatusOK, gin.H{"brands": brands})
 	}
 }
 
-func GetBrands(app *conf.Config) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		cursor, err := app.BrandCollection.Find(c, bson.M{"isActive": true})
-		if err != nil {
-			l.DebugF("Error: %v", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Your request could not be processed. Please try again."})
-			return
-		}
-		defer cursor.Close(c)
-		var brands []Brand
-		if err = cursor.All(c, &brands); err != nil {
-			l.DebugF("Error: %v", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Your request could not be processed. Please try again."})
-			return
-		}
-
-		c.JSON(http.StatusOK, gin.H{"brands": brands})
-	}
-}
+//GetBrands functions does same like ListBrands() so just re-use ListBrands
 
 // get brand by ID
 func GetBrandByID(app *conf.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		brandId := c.Param("id")
-		objectId, err := primitive.ObjectIDFromHex(brandId)
+
+		brandIDStr := c.Param("id")
+		brandID, err := uuid.Parse(brandIDStr)
 		if err != nil {
-			l.DebugF("Error: %v", err)
+			l.DebugF("Invalid brand ID: %v", err) // Log the error
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid brand ID"})
 			return
 		}
 
-		var brand Brand
-		err = app.BrandCollection.FindOne(c, bson.M{"_id": objectId}).Decode(&brand)
+		var fetchedBrand Brand
+		query := `
+			SELECT
+				id, name, slug, image, content_type, description, is_active, updated, created
+			FROM brands
+			WHERE id = $1
+
+
+		`
+		err = app.DB.QueryRowContext(c, query, brandID).Scan(&fetchedBrand.ID, &fetchedBrand.Name, &fetchedBrand.Slug, &fetchedBrand.Image, &fetchedBrand.ContentType, &fetchedBrand.Description, &fetchedBrand.IsActive, &fetchedBrand.Updated, &fetchedBrand.Created)
 		if err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"message": "Cannot find brand with the id: " + brandId})
+
+			if errors.Is(err, sql.ErrNoRows) {
+				c.JSON(http.StatusNotFound, gin.H{"message": "Brand not found"})
+			} else {
+				l.DebugF("Database query error: %v", err)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch brand"})
+			}
 			return
 		}
 
-		c.JSON(http.StatusOK, gin.H{"brand": brand})
+		c.JSON(http.StatusOK, gin.H{"brand": fetchedBrand})
 	}
 }
 
 func ListSelectBrands(app *conf.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		var brands []Brand
-
-		// Fetch brands for the specific merchant
-		cursor, err := app.BrandCollection.Find(c, bson.M{"name": 1})
+		rows, err := app.DB.QueryContext(c, "SELECT id, name FROM brands") // Select only necessary fields
 		if err != nil {
-			l.DebugF("Error: %v", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Your request could not be processed. Please try again."})
+			l.ErrorF("Error querying brands: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch brands"})
 			return
 		}
-		defer cursor.Close(c)
+		defer rows.Close()
 
-		if err = cursor.All(c, &brands); err != nil {
-			l.DebugF("Error: %v", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Your request could not be processed. Please try again."})
-			return
+		var brands []Brand
+		for rows.Next() {
+			var fetchedBrand Brand
+			if err := rows.Scan(&fetchedBrand.ID, &fetchedBrand.Name); err != nil {
+				l.ErrorF("Error scanning brand: %v", err)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch brands"})
+				return
+			}
+			brands = append(brands, fetchedBrand)
 		}
 
 		c.JSON(http.StatusOK, gin.H{"brands": brands})
@@ -124,106 +148,179 @@ func ListSelectBrands(app *conf.Config) gin.HandlerFunc {
 
 func UpdateBrand(app *conf.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		brandId := c.Param("id")
-		objectId, err := primitive.ObjectIDFromHex(brandId)
+		brandIDStr := c.Param("id")
+		brandID, err := uuid.Parse(brandIDStr)
 		if err != nil {
-			l.DebugF("Error: %v", err)
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid brand ID"})
 			return
 		}
 
 		var updateBrand BrandUpdate
 		if err := c.ShouldBindJSON(&updateBrand); err != nil {
-			l.DebugF("Error: %v", err)
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
 
-		slug := updateBrand.Slug
-		var foundBrand Brand
-		err = app.BrandCollection.FindOne(c, bson.M{"slug": slug}).Decode(&foundBrand)
-		if err == nil && foundBrand.ID != objectId {
-			l.DebugF("Error: %v", err)
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Slug is already in use."})
+		var updateFields []string
+		var args []interface{}
+
+		// Check slug uniqueness if being updated
+		if updateBrand.Slug != nil {
+			var existingBrandID uuid.UUID
+			err := app.DB.QueryRowContext(c, `SELECT id FROM brands WHERE slug = $1`, *updateBrand.Slug).Scan(&existingBrandID)
+			if err == nil && existingBrandID != brandID {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "Slug is already in use."})
+				return
+			} else if err != nil && err != sql.ErrNoRows {
+				l.DebugF("Error checking slug uniqueness: %v", err)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update brand."})
+				return
+			}
+		}
+
+		// Append fields dynamically
+		args = append(args, time.Now())
+		updateFields = append(updateFields, "updated = $1")
+
+		if updateBrand.Name != nil {
+			updateFields = append(updateFields, fmt.Sprintf("name = $%d", len(args)+1))
+			args = append(args, *updateBrand.Name)
+		}
+		if updateBrand.Slug != nil {
+			updateFields = append(updateFields, fmt.Sprintf("slug = $%d", len(args)+1))
+			args = append(args, *updateBrand.Slug)
+		}
+		if updateBrand.Image != nil {
+			updateFields = append(updateFields, fmt.Sprintf("image = $%d", len(args)+1))
+			args = append(args, *updateBrand.Image)
+		}
+		if updateBrand.ContentType != nil {
+			updateFields = append(updateFields, fmt.Sprintf("content_type = $%d", len(args)+1))
+			args = append(args, *updateBrand.ContentType)
+		}
+		if updateBrand.Description != nil {
+			updateFields = append(updateFields, fmt.Sprintf("description = $%d", len(args)+1))
+			args = append(args, *updateBrand.Description)
+		}
+		if updateBrand.IsActive != nil {
+			updateFields = append(updateFields, fmt.Sprintf("is_active = $%d", len(args)+1))
+			args = append(args, *updateBrand.IsActive)
+		}
+
+		// If no fields to update, return early
+		if len(updateFields) == 1 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "No fields to update"})
 			return
 		}
 
-		update := bson.M{
-			"$set": updateBrand,
+		// Add brandID for WHERE clause
+		updateQuery := fmt.Sprintf("UPDATE brands SET %s WHERE id = $%d",
+			strings.Join(updateFields, ", "), len(args)+1)
+		args = append(args, brandID)
+
+		// Check for slug uniqueness if it's being updated
+		if updateBrand.Slug != nil {
+			var existingBrandID uuid.UUID
+			err := app.DB.QueryRowContext(c, `SELECT id FROM brands WHERE slug = $1`, *updateBrand.Slug).Scan(&existingBrandID)
+			if err == nil && existingBrandID != brandID {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "Slug is already in use."})
+				return
+			} else if err != nil && err != sql.ErrNoRows {
+				l.DebugF("Error checking slug uniqueness: %v", err)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update brand."})
+				return
+			}
 		}
 
-		_, err = app.BrandCollection.UpdateOne(c, bson.M{"_id": objectId}, update)
+		result, err := app.DB.ExecContext(c, updateQuery, args...)
 		if err != nil {
-			l.DebugF("Error: %v", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Your request could not be processed. Please try again."})
+
+			l.DebugF("Error updating brand: %v", err) // Log the error
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update brand"})
 			return
 		}
 
-		c.JSON(http.StatusOK, gin.H{
-			"success": true,
-			"message": "Brand has been updated successfully!",
-		})
+		rowsAffected, err := result.RowsAffected()
+		if err != nil {
+			l.DebugF("Error getting affected rows: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update brand"})
+			return
+		}
+
+		if rowsAffected == 0 {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Brand not found"})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{"success": true, "message": "Brand updated successfully"})
 	}
 }
 
 func UpdateBrandActive(app *conf.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		brandId := c.Param("id")
-		objectId, err := primitive.ObjectIDFromHex(brandId)
+		brandIDStr := c.Param("id")
+		brandID, err := uuid.Parse(brandIDStr)
 		if err != nil {
-			l.DebugF("Error: %v", err)
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid brand ID"})
 			return
 		}
 
 		var updateBrand struct {
-			IsActive bool `json:"isActive"`
+			IsActive *bool `json:"isActive"`
 		}
 		if err := c.ShouldBindJSON(&updateBrand); err != nil {
-			l.DebugF("Error: %v", err)
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
 			return
 		}
-
-		update := bson.M{
-			"$set": bson.M{"isActive": updateBrand.IsActive},
+		if updateBrand.IsActive == nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "isActive field is required"})
+			return
 		}
-
-		_, err = app.BrandCollection.UpdateOne(c, bson.M{"_id": objectId}, update)
+		_, err = app.DB.ExecContext(c, `
+			UPDATE brands 
+			SET is_active = $1, updated = $2  
+			WHERE id = $3
+		`, updateBrand.IsActive, time.Now(), brandID)
 		if err != nil {
-			l.DebugF("Error: %v", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Your request could not be processed. Please try again."})
+			l.DebugF("Error updating brand status: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update brand status"})
 			return
 		}
 
-		c.JSON(http.StatusOK, gin.H{
-			"success": true,
-			"message": "Brand has been updated successfully!",
-		})
+		c.JSON(http.StatusOK, gin.H{"success": true, "message": "Brand status updated successfully"})
 	}
 }
 
 func DeleteBrand(app *conf.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		brandId := c.Param("id")
-		objectId, err := primitive.ObjectIDFromHex(brandId)
+		brandIDStr := c.Param("id")
+		brandID, err := uuid.Parse(brandIDStr)
+
 		if err != nil {
-			l.DebugF("Error: %v", err)
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid brand ID"})
 			return
 		}
 
-		result, err := app.BrandCollection.DeleteOne(c, bson.M{"_id": objectId})
+		result, err := app.DB.ExecContext(c, "DELETE FROM brands WHERE id = $1", brandID)
 		if err != nil {
-			l.DebugF("Error: %v", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Your request could not be processed. Please try again."})
+			l.DebugF("Error deleting brand: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete brand"})
 			return
 		}
 
-		c.JSON(http.StatusOK, gin.H{
-			"success": true,
-			"message": "Brand has been deleted successfully!",
-			"brand":   result,
-		})
+		rowsAffected, err := result.RowsAffected()
+		if err != nil {
+			l.DebugF("Error getting rows affected: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete brand"})
+			return
+		}
+
+		if rowsAffected == 0 {
+			c.JSON(http.StatusNotFound, gin.H{"message": "Brand not found"})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{"success": true, "message": "Brand deleted successfully"})
+
 	}
 }

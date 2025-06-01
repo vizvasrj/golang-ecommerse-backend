@@ -3,38 +3,27 @@ package brand
 import (
 	"time"
 
-	"github.com/gosimple/slug"
-	"go.mongodb.org/mongo-driver/bson/primitive"
+	"github.com/google/uuid"
+	"github.com/guregu/null/v5"
 )
 
-// Brand represents the brand model
 type Brand struct {
-	ID          primitive.ObjectID `bson:"_id,omitempty" json:"_id"`
-	Name        string             `bson:"name" json:"name"`
-	Slug        string             `bson:"slug" json:"slug"`
-	Image       Image              `bson:"image" json:"image"`
-	Description string             `bson:"description" json:"description"`
-	IsActive    bool               `bson:"isActive" json:"isActive"`
-	Merchant    primitive.ObjectID `bson:"merchant,omitempty" json:"merchant,omitempty"`
-	Updated     time.Time          `bson:"updated" json:"updated"`
-	Created     time.Time          `bson:"created" json:"created"`
-}
-
-// Image represents the image model
-type Image struct {
-	Data        []byte `bson:"data" json:"data"`
-	ContentType string `bson:"contentType" json:"contentType"`
-}
-
-func NewBrand(b Brand) *Brand {
-	b.Slug = slug.Make(b.Name)
-	return &b
+	ID          uuid.UUID   `db:"id" json:"_id,omitempty"`
+	Name        string      `db:"name" json:"name,omitempty" binding:"required"`
+	Slug        string      `db:"slug" json:"slug,omitempty"`
+	Image       string      `db:"image" json:"image,omitempty"` // Assuming image is a URL now
+	ContentType null.String `db:"content_type" json:"contentType,omitempty"`
+	Description string      `db:"description" json:"description,omitempty" binding:"required"`
+	IsActive    bool        `db:"is_active" json:"isActive"`
+	Updated     time.Time   `db:"updated" json:"updated,omitempty"`
+	Created     time.Time   `db:"created" json:"created,omitempty"`
 }
 
 type BrandUpdate struct {
-	Name        string `bson:"name,omitempty" json:"name,omitempty"`
-	Slug        string `bson:"slug,omitempty" json:"slug,omitempty"`
-	Image       Image  `bson:"image,omitempty" json:"image,omitempty"`
-	Description string `bson:"description,omitempty" json:"description,omitempty"`
-	IsActive    bool   `bson:"isActive,omitempty" json:"isActive,omitempty"`
+	Name        *string `db:"name" json:"name"` // Pointers for optional fields
+	Slug        *string `db:"slug" json:"slug"`
+	Image       *string `db:"image" json:"image"`
+	ContentType *string `db:"content_type" json:"contentType"`
+	Description *string `db:"description" json:"description"`
+	IsActive    *bool   `db:"is_active" json:"isActive"`
 }

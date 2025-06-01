@@ -1,277 +1,277 @@
 package user
 
 import (
+	"database/sql"
+	"errors"
+	"fmt"
 	"math"
 	"net/http"
-	"regexp"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
+
 	"src/common"
 	"src/l"
 	"src/pkg/conf"
-	"strconv"
-
-	"github.com/gin-gonic/gin"
-	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/bson/primitive"
-	"go.mongodb.org/mongo-driver/mongo/options"
 )
+
+// Model Structs
+
+type UserSearch struct {
+	common.User
+	Merchant common.Merchant `json:"merchant"`
+}
+
+type UserUpdate struct {
+	FirstName   *string `json:"firstName"`
+	LastName    *string `json:"lastName"`
+	PhoneNumber *string `json:"phoneNumber"`
+	Avatar      *string `json:"avatar"`
+}
 
 func SearchUsers(app *conf.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// Check if the user is authenticated and has the Admin role
+
 		userRoleStr := c.MustGet("role").(string)
 		userRole := common.GetUserRole(userRoleStr)
-
 		if userRole != common.RoleAdmin {
 			c.JSON(http.StatusForbidden, gin.H{"error": "Forbidden"})
 			return
 		}
 
 		search := c.Query("search")
-		regex, err := regexp.Compile("(?i)" + search)
+		search = strings.TrimSpace(search) // Remove leading/trailing spaces
+
+		query := `
+            SELECT u.id, u.email, u.phone_number, u.first_name, u.last_name, u.role, u.provider, u.avatar, u.created, u.updated,
+                   m.id AS merchant_id, m.name AS merchant_name, m.email AS merchant_email, m.phone_number AS merchant_phone_number, m.brand_name, m.business, m.is_active AS merchant_is_active, m.status AS merchant_status, m.updated AS merchant_updated, m.created AS merchant_created
+            FROM users u
+            LEFT JOIN merchants m ON u.id = m.user_id
+            WHERE 1=1`
+
+		var args []interface{}
+		if search != "" {
+			query += ` AND (u.first_name ILIKE $1 OR u.last_name ILIKE $1 OR u.email ILIKE $1)`
+			args = append(args, "%"+search+"%")
+		}
+
+		rows, err := app.DB.QueryContext(c, query, args...)
+
 		if err != nil {
-			l.DebugF("Error: %v", err)
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid search query"})
+			l.DebugF("Error querying users: %v", err)                                        // Log the error
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to search users"}) // Generic message for security
 			return
-		}
 
-		filter := bson.M{
-			"$or": []bson.M{
-				{"firstName": bson.M{"$regex": regex}},
-				{"lastName": bson.M{"$regex": regex}},
-				{"email": bson.M{"$regex": regex}},
-			},
 		}
-
-		cursor, err := app.UserCollection.Find(c, filter, options.Find().SetProjection(bson.M{"password": 0, "_id": 0}))
-		if err != nil {
-			l.DebugF("Error: %v", err)
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Your request could not be processed. Please try again."})
-			return
-		}
-		defer cursor.Close(c)
-
-		var users []User
-		if err = cursor.All(c, &users); err != nil {
-			l.DebugF("Error: %v", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Error decoding users"})
-			return
-		}
+		defer rows.Close()
 
 		var searchUsers []UserSearch
-		// Populate merchant field
-		for i, user := range users {
-			searchUsers = append(searchUsers, UserSearch{
-				ID:          user.ID,
-				Email:       user.Email,
-				PhoneNumber: user.PhoneNumber,
-				FirstName:   user.FirstName,
-				LastName:    user.LastName,
-				Role:        user.Role,
-				Provider:    user.Provider,
-				Avatar:      user.Avatar,
-				Created:     user.Created,
-				Updated:     user.Updated,
-			})
-			if user.Merchant != primitive.NilObjectID {
-				var merchant Merchant
-				err := app.MerchantCollection.FindOne(c, bson.M{"_id": user.Merchant}).Decode(&merchant)
-				if err == nil {
-					searchUsers[i].Merchant = merchant
-				}
+		for rows.Next() {
+
+			var u common.User
+			var m common.Merchant
+			err := rows.Scan(
+				&u.ID, &u.Email, &u.PhoneNumber, &u.FirstName, &u.LastName, &u.Role, &u.Provider, &u.Avatar, &u.Created, &u.Updated,
+				&m.ID, &m.Name, &m.Email, &m.PhoneNumber, &m.BrandName, &m.Business, &m.IsActive, &m.Status, &m.Updated, &m.Created,
+			)
+			if err != nil {
+
+				l.DebugF("Error scanning users: %v", err)                                       // More specific error message
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch users"}) // Generic message for security
+
+				return
 			}
+
+			searchUsers = append(searchUsers, UserSearch{User: u, Merchant: m})
+
 		}
 
-		c.JSON(http.StatusOK, gin.H{
-			"users": searchUsers,
-		})
+		c.JSON(http.StatusOK, gin.H{"users": searchUsers})
 	}
 }
 
 func FetchUsers(app *conf.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// Parse query parameters for pagination
-		page, err := strconv.Atoi(c.DefaultQuery("page", "1"))
-		if err != nil || page < 1 {
+		page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+		limit, _ := strconv.Atoi(c.DefaultQuery("limit", "10"))
+
+		if page < 1 {
 			page = 1
 		}
-		limit, err := strconv.Atoi(c.DefaultQuery("limit", "10"))
-		if err != nil || limit < 1 {
-			limit = 10
+		if limit < 1 {
+
+			limit = 10 // Or set to a reasonable default limit
 		}
 
-		// Calculate skip value
-		skip := (page - 1) * limit
+		offset := (page - 1) * limit
 
-		// Fetch users from the database with pagination
-		findOptions := options.Find()
-		findOptions.SetSort(bson.D{{Key: "created", Value: -1}})
-		findOptions.SetLimit(int64(limit))
-		findOptions.SetSkip(int64(skip))
-		findOptions.SetProjection(bson.M{"password": 0, "_id": 0, "googleId": 0})
-
-		cursor, err := app.UserCollection.Find(c, bson.M{}, findOptions)
+		rows, err := app.DB.QueryContext(c, `
+			SELECT id, email, phone_number, first_name, last_name, role, provider, avatar, created, updated
+			FROM users
+            ORDER BY created DESC  -- Sort by the created timestamp in descending order
+			LIMIT $1 OFFSET $2
+		`, limit, offset) // Pass limit and offset as query parameters
 		if err != nil {
-			l.DebugF("Error: %v", err)
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Your request could not be processed. Please try again."})
-			return
-		}
-		defer cursor.Close(c)
 
-		var users []User
-		if err = cursor.All(c, &users); err != nil {
-			l.DebugF("Error: %v", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Error decoding users"})
+			l.DebugF("Error fetching users: %v", err) // Log the error
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve users"})
 			return
-		}
 
-		// Populate merchant field
-		var searchUsers []UserSearch
-		for i, user := range users {
-			searchUsers = append(searchUsers, UserSearch{
-				ID:          user.ID,
-				Email:       user.Email,
-				PhoneNumber: user.PhoneNumber,
-				FirstName:   user.FirstName,
-				LastName:    user.LastName,
-				Role:        user.Role,
-				Provider:    user.Provider,
-				Avatar:      user.Avatar,
-				Created:     user.Created,
-				Updated:     user.Updated,
-			})
-			if user.Merchant != primitive.NilObjectID {
-				var merchant Merchant
-				err := app.MerchantCollection.FindOne(c, bson.M{"_id": user.Merchant}).Decode(&merchant)
-				if err == nil {
-					searchUsers[i].Merchant = merchant
-				}
+		}
+		defer rows.Close()
+
+		users := []common.User{}
+		for rows.Next() {
+
+			var user common.User
+
+			err := rows.Scan(&user.ID, &user.Email, &user.PhoneNumber, &user.FirstName, &user.LastName, &user.Role, &user.Provider, &user.Avatar, &user.Created, &user.Updated)
+
+			if err != nil {
+
+				l.ErrorF("Failed to scan user row: %v", err)                                        // Log the error for debugging
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to scan users data"}) // Generic message for security
+
+				return
+
 			}
+
+			users = append(users, user)
 		}
 
-		// Get the total count of users
-		count, err := app.UserCollection.CountDocuments(c, bson.M{})
+		// Fetch total users separately
+
+		row := app.DB.QueryRow("SELECT COUNT(*) FROM users")
+
+		var totalCount int
+		err = row.Scan(&totalCount)
+
 		if err != nil {
-			l.DebugF("Error: %v", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Error counting users"})
+			l.DebugF("Error scanning users count: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to scan user count"})
 			return
 		}
 
-		// Return the users along with pagination details
+		totalPages := int(math.Ceil(float64(totalCount) / float64(limit)))
+
 		c.JSON(http.StatusOK, gin.H{
-			"users":       searchUsers,
-			"totalPages":  math.Ceil(float64(count) / float64(limit)),
-			"currentPage": page,
-			"count":       count,
+			"users":        users,
+			"total_pages":  totalPages,
+			"current_page": page,
+			"total_count":  totalCount, // Include the total count of users
 		})
+
 	}
+
 }
 
-func GetCurrentUser(app *conf.Config) gin.HandlerFunc {
+func GetCurrentUser(app *conf.Config) gin.HandlerFunc { // Updated GetCurrentUser function
 	return func(c *gin.Context) {
-		// Extract the user ID from the request context
-		userID, exists := c.Get("userID")
-		if !exists {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "User ID not found in request context"})
-			return
-		}
+		userIDStr := c.GetString("userID")
 
-		// Convert userID to ObjectID
-		objID, err := primitive.ObjectIDFromHex(userID.(string))
+		userID, err := uuid.Parse(userIDStr)
 		if err != nil {
-			l.DebugF("Error: %v", err)
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
 			return
 		}
 
-		// Fetch the user document from the database by ID
-		var user User
-		err = app.UserCollection.FindOne(c, bson.M{"_id": objID}, options.FindOne().SetProjection(bson.M{"password": 0})).Decode(&user)
+		var user common.User
+		err = app.DB.QueryRowContext(c, "SELECT * FROM users WHERE id = $1", userID).Scan(&user.ID, &user.Email, &user.PhoneNumber, &user.FirstName, &user.LastName, &user.Password, &user.Provider, &user.GoogleID, &user.FacebookID, &user.Avatar, &user.Role, &user.ResetPasswordToken, &user.ResetPasswordExpires, &user.Updated, &user.Created)
+
 		if err != nil {
-			l.DebugF("Error: %v", err)
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Your request could not be processed. Please try again."})
+			if errors.Is(err, sql.ErrNoRows) { // Check if it's a "no rows" error
+				c.JSON(http.StatusNotFound, gin.H{"message": "User not found"})
+			} else {
+
+				l.ErrorF("Error fetching user : %v", err)
+
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch user data"}) // Generic message
+			}
+
 			return
 		}
 
-		// Populate the merchant and brand fields
-		var SearchedUser UserSearch
-		SearchedUser.ID = user.ID
-		SearchedUser.Email = user.Email
-		SearchedUser.PhoneNumber = user.PhoneNumber
-		SearchedUser.FirstName = user.FirstName
-		SearchedUser.LastName = user.LastName
-		SearchedUser.Role = user.Role
-		SearchedUser.Provider = user.Provider
-		SearchedUser.Avatar = user.Avatar
-		SearchedUser.Created = user.Created
-		SearchedUser.Updated = user.Updated
+		var merchant common.Merchant
+		err = app.DB.QueryRowContext(
+			c, `SELECT id, user_id, name, email, phone_number, brand_name, business, is_active, status, updated, created 
+			 FROM merchants WHERE user_id = $1`, user.ID,
+		).Scan(&merchant.ID, &merchant.UserID, &merchant.Name, &merchant.Email, &merchant.PhoneNumber, &merchant.BrandName, &merchant.Business, &merchant.IsActive, &merchant.Status, &merchant.Updated, &merchant.Created) // Fetch all merchant details
 
-		if user.Merchant != primitive.NilObjectID {
-			var merchant Merchant
-			err := app.MerchantCollection.FindOne(c, bson.M{"_id": user.Merchant}).Decode(&merchant)
-			if err == nil {
-				SearchedUser.Merchant = merchant
-			}
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			l.ErrorF("Error fetching merchant: %v", err) // Log the error
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve merchant details"})
+			return
+
 		}
 
-		// Return the user document in the response
-		c.JSON(http.StatusOK, gin.H{"user": SearchedUser})
+		userSearch := UserSearch{User: user, Merchant: merchant}
+
+		c.JSON(http.StatusOK, gin.H{"user": userSearch})
+
 	}
 }
+
+// UpdateUserProfile (updated below)
 
 func UpdateUserProfile(app *conf.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// Extract the user ID from the request context
-		userID, exists := c.Get("userID")
-		if !exists {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "User ID not found in request context"})
-			return
-		}
+		userIDStr := c.GetString("userID")
 
-		// Convert userID to ObjectID
-		objID, err := primitive.ObjectIDFromHex(userID.(string))
+		userID, err := uuid.Parse(userIDStr)
 		if err != nil {
-			l.DebugF("Error: %v", err)
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
 			return
 		}
-		// var updateTwo interface{}
-		// c.ShouldBind(&updateTwo)
-		// fmt.Printf("%#v\n", updateTwo)
-		// Parse the update data from the request body
-		var update UserUpdate
-		if err := c.ShouldBindJSON(&update); err != nil {
-			l.DebugF("Error: %v", err)
+
+		var updateData UserUpdate
+		if err := c.ShouldBindJSON(&updateData); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
 			return
 		}
 
-		// Update the user document in the database
-		filter := bson.M{"_id": objID}
-		exclude := bson.M{
-			"password":   0,
-			"googleId":   0,
-			"facebookId": 0,
+		updateQuery := "UPDATE users SET updated = $1"
+		args := []interface{}{time.Now()}
+		argIndex := 2
+
+		if updateData.FirstName != nil {
+			updateQuery += fmt.Sprintf(", first_name = $%d", argIndex)
+			args = append(args, *updateData.FirstName)
+			argIndex++
 		}
-		updateResult := app.UserCollection.FindOneAndUpdate(c, filter, bson.M{"$set": update}, options.FindOneAndUpdate().SetReturnDocument(options.After).SetProjection(exclude))
-		if updateResult.Err() != nil {
-			l.DebugF("Error: %v", err)
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Your request could not be processed. Please try again."})
-			return
+		if updateData.LastName != nil {
+			updateQuery += fmt.Sprintf(", last_name = $%d", argIndex)
+			args = append(args, *updateData.LastName)
+			argIndex++
 		}
 
-		// Decode the updated user document
-		var updatedUser User
-		if err := updateResult.Decode(&updatedUser); err != nil {
-			l.DebugF("Error: %v", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Error decoding updated user"})
-			return
+		if updateData.PhoneNumber != nil {
+			updateQuery += fmt.Sprintf(", phone_number = $%d", argIndex)
+			args = append(args, *updateData.PhoneNumber)
+			argIndex++
 		}
 
-		// Return the updated user document in the response
-		c.JSON(http.StatusOK, gin.H{
-			"success": true,
-			"message": "Your profile is successfully updated!",
-			"user":    updatedUser,
-		})
+		if updateData.Avatar != nil {
+			updateQuery += fmt.Sprintf(", avatar = $%d", argIndex)
+			args = append(args, *updateData.Avatar)
+			argIndex++
+		}
+
+		updateQuery += fmt.Sprintf(" WHERE id = $%d", argIndex)
+		args = append(args, userID)
+
+		_, err = app.DB.ExecContext(c, updateQuery, args...)
+		if err != nil {
+
+			l.DebugF("Error updating user profile: %v", err) // Detailed log message
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update profile"})
+			return
+
+		}
+
+		c.JSON(http.StatusOK, gin.H{"success": true, "message": "Profile updated successfully"})
 	}
+
 }

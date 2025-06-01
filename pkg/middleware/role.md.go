@@ -22,7 +22,7 @@ func RoleCheck(allowedRoles ...common.UserRole) gin.HandlerFunc {
 		// 	c.Abort()
 		// 	return
 		// }
-
+		// l.DebugF("Role check: %#v", userRole)
 		for _, allowedRole := range allowedRoles {
 			if userRole == allowedRole {
 				c.Next()
