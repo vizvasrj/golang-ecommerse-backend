@@ -3,7 +3,6 @@ package middleware
 import (
 	"net/http"
 	"src/common"
-	"src/l"
 
 	"github.com/gin-gonic/gin"
 )
@@ -23,7 +22,7 @@ func RoleCheck(allowedRoles ...common.UserRole) gin.HandlerFunc {
 		// 	c.Abort()
 		// 	return
 		// }
-		l.DebugF("Role check: %#v", userRole)
+		// l.DebugF("Role check: %#v", userRole)
 		for _, allowedRole := range allowedRoles {
 			if userRole == allowedRole {
 				c.Next()

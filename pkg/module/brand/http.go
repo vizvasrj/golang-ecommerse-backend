@@ -3,7 +3,9 @@ package brand
 import (
 	"database/sql"
 	"errors"
+	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -52,10 +54,14 @@ func AddBrand(app *conf.Config) gin.HandlerFunc {
 
 func ListBrands(app *conf.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
-
-		rows, err := app.DB.QueryContext(c, "SELECT * FROM brands WHERE is_active = TRUE")
+		query := `
+		SELECT 
+			id, name, slug, image, content_type, description, is_active, updated, created
+		FROM brands WHERE is_active = TRUE
+		`
+		rows, err := app.DB.QueryContext(c, query)
 		if err != nil {
-			l.DebugF("Error querying brands: %v", err)
+			l.ErrorF("Error querying brands: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch brands"})
 			return
 		}
@@ -63,13 +69,13 @@ func ListBrands(app *conf.Config) gin.HandlerFunc {
 
 		var brands []Brand
 		for rows.Next() {
-			var brand Brand
-			if err := rows.Scan(&brand); err != nil { // Use StructScan
-				l.DebugF("Error scanning brand: %v", err)
+			var fetchedBrand Brand
+			if err := rows.Scan(&fetchedBrand.ID, &fetchedBrand.Name, &fetchedBrand.Slug, &fetchedBrand.Image, &fetchedBrand.ContentType, &fetchedBrand.Description, &fetchedBrand.IsActive, &fetchedBrand.Updated, &fetchedBrand.Created); err != nil {
+				l.ErrorF("Error scanning brand: %v", err)
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch brands"})
 				return
 			}
-			brands = append(brands, brand)
+			brands = append(brands, fetchedBrand)
 		}
 
 		c.JSON(http.StatusOK, gin.H{"brands": brands})
@@ -90,8 +96,16 @@ func GetBrandByID(app *conf.Config) gin.HandlerFunc {
 			return
 		}
 
-		var brand Brand
-		err = app.DB.QueryRowContext(c, "SELECT * FROM brands WHERE id = $1", brandID).Scan(&brand)
+		var fetchedBrand Brand
+		query := `
+			SELECT
+				id, name, slug, image, content_type, description, is_active, updated, created
+			FROM brands
+			WHERE id = $1
+
+
+		`
+		err = app.DB.QueryRowContext(c, query, brandID).Scan(&fetchedBrand.ID, &fetchedBrand.Name, &fetchedBrand.Slug, &fetchedBrand.Image, &fetchedBrand.ContentType, &fetchedBrand.Description, &fetchedBrand.IsActive, &fetchedBrand.Updated, &fetchedBrand.Created)
 		if err != nil {
 
 			if errors.Is(err, sql.ErrNoRows) {
@@ -103,7 +117,7 @@ func GetBrandByID(app *conf.Config) gin.HandlerFunc {
 			return
 		}
 
-		c.JSON(http.StatusOK, gin.H{"brand": brand})
+		c.JSON(http.StatusOK, gin.H{"brand": fetchedBrand})
 	}
 }
 
@@ -111,7 +125,7 @@ func ListSelectBrands(app *conf.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		rows, err := app.DB.QueryContext(c, "SELECT id, name FROM brands") // Select only necessary fields
 		if err != nil {
-			l.DebugF("Error querying brands: %v", err)
+			l.ErrorF("Error querying brands: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch brands"})
 			return
 		}
@@ -119,13 +133,13 @@ func ListSelectBrands(app *conf.Config) gin.HandlerFunc {
 
 		var brands []Brand
 		for rows.Next() {
-			var brand Brand
-			if err := rows.Scan(&brand); err != nil {
-				l.DebugF("Error scanning brand: %v", err)
+			var fetchedBrand Brand
+			if err := rows.Scan(&fetchedBrand.ID, &fetchedBrand.Name); err != nil {
+				l.ErrorF("Error scanning brand: %v", err)
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch brands"})
 				return
 			}
-			brands = append(brands, brand)
+			brands = append(brands, fetchedBrand)
 		}
 
 		c.JSON(http.StatusOK, gin.H{"brands": brands})
@@ -147,22 +161,61 @@ func UpdateBrand(app *conf.Config) gin.HandlerFunc {
 			return
 		}
 
-		// Dynamically build the update query and arguments:
-		updateQuery := "UPDATE brands SET updated = $1"
-		args := []interface{}{time.Now()}
+		var updateFields []string
+		var args []interface{}
+
+		// Check slug uniqueness if being updated
+		if updateBrand.Slug != nil {
+			var existingBrandID uuid.UUID
+			err := app.DB.QueryRowContext(c, `SELECT id FROM brands WHERE slug = $1`, *updateBrand.Slug).Scan(&existingBrandID)
+			if err == nil && existingBrandID != brandID {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "Slug is already in use."})
+				return
+			} else if err != nil && err != sql.ErrNoRows {
+				l.DebugF("Error checking slug uniqueness: %v", err)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update brand."})
+				return
+			}
+		}
+
+		// Append fields dynamically
+		args = append(args, time.Now())
+		updateFields = append(updateFields, "updated = $1")
 
 		if updateBrand.Name != nil {
-			updateQuery += ", name = $2"
+			updateFields = append(updateFields, fmt.Sprintf("name = $%d", len(args)+1))
 			args = append(args, *updateBrand.Name)
 		}
 		if updateBrand.Slug != nil {
-			updateQuery += ", slug = $3"
+			updateFields = append(updateFields, fmt.Sprintf("slug = $%d", len(args)+1))
 			args = append(args, *updateBrand.Slug)
-
 		}
-		// ... Similarly, add conditions for other optional fields (Image, ContentType, Description, IsActive)
+		if updateBrand.Image != nil {
+			updateFields = append(updateFields, fmt.Sprintf("image = $%d", len(args)+1))
+			args = append(args, *updateBrand.Image)
+		}
+		if updateBrand.ContentType != nil {
+			updateFields = append(updateFields, fmt.Sprintf("content_type = $%d", len(args)+1))
+			args = append(args, *updateBrand.ContentType)
+		}
+		if updateBrand.Description != nil {
+			updateFields = append(updateFields, fmt.Sprintf("description = $%d", len(args)+1))
+			args = append(args, *updateBrand.Description)
+		}
+		if updateBrand.IsActive != nil {
+			updateFields = append(updateFields, fmt.Sprintf("is_active = $%d", len(args)+1))
+			args = append(args, *updateBrand.IsActive)
+		}
 
-		updateQuery += " WHERE id = $4" // Assuming $4 is the last parameter
+		// If no fields to update, return early
+		if len(updateFields) == 1 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "No fields to update"})
+			return
+		}
+
+		// Add brandID for WHERE clause
+		updateQuery := fmt.Sprintf("UPDATE brands SET %s WHERE id = $%d",
+			strings.Join(updateFields, ", "), len(args)+1)
 		args = append(args, brandID)
 
 		// Check for slug uniqueness if it's being updated
@@ -213,13 +266,16 @@ func UpdateBrandActive(app *conf.Config) gin.HandlerFunc {
 		}
 
 		var updateBrand struct {
-			IsActive bool `json:"isActive"`
+			IsActive *bool `json:"isActive"`
 		}
 		if err := c.ShouldBindJSON(&updateBrand); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
 			return
 		}
-
+		if updateBrand.IsActive == nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "isActive field is required"})
+			return
+		}
 		_, err = app.DB.ExecContext(c, `
 			UPDATE brands 
 			SET is_active = $1, updated = $2  

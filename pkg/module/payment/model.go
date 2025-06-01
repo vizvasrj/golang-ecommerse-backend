@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"go.mongodb.org/mongo-driver/bson/primitive"
+	"github.com/google/uuid"
 )
 
 type CashfreeWebhookRequest struct {
@@ -88,16 +88,16 @@ const (
 )
 
 type Receipt struct {
-	ID              primitive.ObjectID `json:"_id" bson:"_id"`
-	OrderID         primitive.ObjectID `json:"orderId" bson:"orderId"`
-	CartID          primitive.ObjectID `json:"cartId" bson:"cartId"`
-	RazorpayOrderID string             `json:"razorpayOrderId" bson:"razorpay_order_id"`
-	Amount          float64            `json:"amount" bson:"amount"`
-	Created         time.Time          `json:"created" bson:"created"`
-	Updated         time.Time          `json:"updated" bson:"updated"`
-	PaymentProvider string             `json:"paymentProvider" bson:"paymentProvider"`
-	ProviderData    interface{}        `json:"providerData" bson:"providerData"`
-	PaymentStatus   PaymentStatus      `json:"paymentStatus" bson:"paymentStatus"`
+	ID              uuid.UUID              `json:"_id" bson:"_id"`
+	OrderID         uuid.UUID              `json:"orderId" bson:"orderId"`
+	CartID          uuid.UUID              `json:"cartId" bson:"cartId"`
+	RazorpayOrderID string                 `json:"razorpayOrderId" bson:"razorpay_order_id"`
+	Amount          float64                `json:"amount" bson:"amount"`
+	Created         time.Time              `json:"created" bson:"created"`
+	Updated         time.Time              `json:"updated" bson:"updated"`
+	PaymentProvider string                 `json:"paymentProvider" bson:"paymentProvider"`
+	ProviderData    map[string]interface{} `json:"providerData" bson:"providerData"`
+	PaymentStatus   PaymentStatus          `json:"paymentStatus" bson:"paymentStatus"`
 }
 
 type OrderCreateRequest struct {

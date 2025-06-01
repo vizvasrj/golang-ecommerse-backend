@@ -77,8 +77,9 @@ type AddOrderRequest struct {
 }
 
 type AddOrder2Request struct { // Request struct for AddOrderWithCartItemAndAddress
-	CartID    uuid.UUID `json:"cartId" binding:"required"`
-	AddressID uuid.UUID `json:"addressId" binding:"required"`
+	CartID uuid.UUID `json:"cartId" binding:"required"`
+	// AddressID uuid.UUID `json:"addressId" binding:"required"`
+	Address address.Address `json:"address" binding:"required"`
 }
 
 type UpdateOrderItemStatusRequest struct {

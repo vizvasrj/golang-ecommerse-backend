@@ -103,7 +103,7 @@ func AddOrderWithCartItemAndAddress(app *conf.Config) gin.HandlerFunc {
 
 		total := calculateTotal(cartItems)
 
-		if !verifyAddressOwnership(ctx, tx, req.AddressID, userID) {
+		if !verifyAddressOwnership(ctx, tx, req.Address.ID, userID) {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "You are not authorized to use this address."})
 			return
 		}
@@ -206,7 +206,7 @@ func createOrder(ctx context.Context, tx *sql.Tx, req AddOrder2Request, userID u
 	_, err := tx.ExecContext(ctx, `
         INSERT INTO orders (id, cart_id, user_id, address_id, total, created)
         VALUES ($1, $2, $3, $4, $5, $6)
-    `, newOrderID, req.CartID, userID, req.AddressID, total, time.Now())
+    `, newOrderID, req.CartID, userID, req.Address.ID, total, time.Now())
 	return newOrderID, err
 }
 
@@ -233,7 +233,7 @@ func respondSuccess(c *gin.Context, orderID uuid.UUID, total float64, razorpayOr
 		"success": true,
 		"message": "Your order has been placed successfully!",
 		"order": gin.H{
-			"id":     orderID,
+			"_id":    orderID,
 			"amount": total * 100,
 		},
 		"razorpay_order_id": razorpayOrderID,

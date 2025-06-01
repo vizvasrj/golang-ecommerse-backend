@@ -15,6 +15,7 @@ import (
 	"src/common"
 	"src/l"
 	"src/pkg/conf"
+	"src/pkg/module/product"
 )
 
 // Model Structs
@@ -26,6 +27,7 @@ func AddReview(app *conf.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var reviewInput PutReviewInput
 		if err := c.ShouldBindJSON(&reviewInput); err != nil {
+			l.ErrorF("Error binding review input: %v", err) // Log the error
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
 			return
 		}
@@ -52,7 +54,6 @@ func AddReview(app *conf.Config) gin.HandlerFunc {
 		if err != nil {
 			l.ErrorF("Error checking for product: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to verify product"})
-
 			return
 		}
 		if !productExists {
@@ -119,10 +120,14 @@ func GetAllReviews(app *conf.Config) gin.HandlerFunc {
 		offset := (page - 1) * limit
 
 		rows, err := app.DB.QueryContext(c, `
-			SELECT id, product_id, user_id, title, rating, review, is_recommended, status, updated, created 
-			FROM reviews
-			ORDER BY created DESC  -- Order reviews by creation time (descending)
-			LIMIT $1 OFFSET $2
+		SELECT r.id, r.product_id, r.user_id, r.title, r.rating, r.review, r.is_recommended, r.status, r.updated, r.created,
+				u.first_name, u.last_name, u.email, p.name as product_name, p.slug as product_slug, p.image_url as product_image_url, p.price as product_price, p.taxable as product_taxable, p.is_active as product_is_active, p.brand_id as product_brand_id, p.merchant_id as product_merchant_id, p.updated as product_updated, p.created as product_created
+		FROM reviews r
+		JOIN products p ON r.product_id = p.id
+		JOIN users u ON r.user_id = u.id
+		ORDER BY r.created DESC                  -- Order by newest first
+		LIMIT $1 OFFSET $2
+
 		`, limit, offset)
 
 		if err != nil {
@@ -137,19 +142,33 @@ func GetAllReviews(app *conf.Config) gin.HandlerFunc {
 		var reviews []Review // Initialize an empty slice for reviews
 
 		for rows.Next() {
-
 			var review Review
+			var user ReviewUser
+			var productData product.Product
 
-			err = rows.Scan(
-
-				&review.ID, &review.ProductID, &review.UserID, &review.Title, &review.Rating, &review.Review, &review.IsRecommended, &review.Status, &review.Updated, &review.Created)
-
+			err := rows.Scan(
+				&review.ID, &review.ProductID, &review.UserID, &review.Title, &review.Rating, &review.Review, &review.IsRecommended, &review.Status, &review.Updated, &review.Created,
+				&user.FirstName, &user.LastName, &user.Email, &productData.Name, &productData.Slug, &productData.ImageURL, &productData.Price, &productData.Taxable, &productData.IsActive, &productData.BrandID, &productData.MerchantID, &productData.Updated, &productData.Created,
+			)
 			if err != nil {
-				l.ErrorF("Error scanning review: %v", err)                                        // Log the error
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to scan reviews."}) // Don't leak internal errors
+				l.ErrorF("Failed to scan review and user: %v", err) // Log the actual error for debugging
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to scan review data"})
 				return
-
 			}
+			l.DebugF("Review: %v", review) // Log the review for debugging
+			// Now associate the fetched user with the review.
+			reviewUser := ReviewUser{
+				ID:        review.UserID, // Associate user ID
+				FirstName: user.FirstName,
+				LastName:  user.LastName,
+				Email:     user.Email,
+			}
+			review.User = &reviewUser // Assuming you have a User field in your Review model
+
+			// Now associate the fetched product with the review.
+			productData.ID = review.ProductID
+			review.Product = &productData // Assuming you have a Product field in your Review model
+
 			reviews = append(reviews, review)
 
 		}
@@ -197,7 +216,7 @@ func GetProductReviewsBySlug(app *conf.Config) gin.HandlerFunc {
 
 			return
 		}
-
+		l.DebugF("Product ID: %v", productID)
 		rows, err := app.DB.QueryContext(c, `
             SELECT r.id, r.product_id, r.user_id, r.title, r.rating, r.review, r.is_recommended, r.status, r.updated, r.created,
                    u.first_name, u.last_name, u.email
@@ -216,7 +235,7 @@ func GetProductReviewsBySlug(app *conf.Config) gin.HandlerFunc {
 		}
 		defer rows.Close()
 
-		var reviews []Review
+		reviews := make([]Review, 0)
 		for rows.Next() {
 			var review Review
 			var user ReviewUser
@@ -229,6 +248,7 @@ func GetProductReviewsBySlug(app *conf.Config) gin.HandlerFunc {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to scan review data"})
 				return
 			}
+			l.DebugF("Review: %v", review) // Log the review for debugging
 			// Now associate the fetched user with the review.
 			reviewUser := ReviewUser{
 				ID:        review.UserID, // Associate user ID
@@ -240,7 +260,6 @@ func GetProductReviewsBySlug(app *conf.Config) gin.HandlerFunc {
 			reviews = append(reviews, review)
 
 		}
-
 		c.JSON(http.StatusOK, gin.H{"reviews": reviews})
 	}
 

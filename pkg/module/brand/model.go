@@ -14,7 +14,7 @@ type Brand struct {
 	Image       string      `db:"image" json:"image,omitempty"` // Assuming image is a URL now
 	ContentType null.String `db:"content_type" json:"contentType,omitempty"`
 	Description string      `db:"description" json:"description,omitempty" binding:"required"`
-	IsActive    bool        `db:"is_active" json:"isActive,omitempty"`
+	IsActive    bool        `db:"is_active" json:"isActive"`
 	Updated     time.Time   `db:"updated" json:"updated,omitempty"`
 	Created     time.Time   `db:"created" json:"created,omitempty"`
 }

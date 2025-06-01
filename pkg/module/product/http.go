@@ -249,7 +249,7 @@ func FetchStoreProductsByFilters(app *conf.Config) gin.HandlerFunc {
 			argIndex++
 		}
 
-		if categorySlug != "" {
+		if categorySlug != "" && categorySlug != "all" {
 			query += fmt.Sprintf(" AND c.slug = $%d", argIndex)
 			args = append(args, categorySlug)
 			argIndex++
@@ -258,7 +258,7 @@ func FetchStoreProductsByFilters(app *conf.Config) gin.HandlerFunc {
 		// Add sorting and pagination (ORDER BY, LIMIT, OFFSET)
 		query += fmt.Sprintf(" ORDER BY p.created DESC LIMIT $%d OFFSET $%d", argIndex, argIndex+1)
 		args = append(args, limit, (page-1)*limit)
-
+		l.DebugF("query: %s, args: %v", query, args)
 		// Execute query
 		// l.DebugF("%s, %v", query, args)
 		rows, err := app.DB.QueryContext(c, query, args...)
@@ -393,6 +393,7 @@ func AddProduct(app *conf.Config) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
+		slug := misc.GenerateSlug(input.Name)
 
 		var imageUrl, imageKey string
 		var err error
@@ -438,7 +439,7 @@ func AddProduct(app *conf.Config) gin.HandlerFunc {
 		// Build the dynamic query
 		query := "INSERT INTO products (id, sku, name, slug, created, updated"
 		values := "VALUES ($1, $2, $3, $4, $5, $6"
-		args := []interface{}{newProductID, input.SKU, input.Name, input.Slug, time.Now(), time.Now()}
+		args := []interface{}{newProductID, input.SKU, input.Name, slug, time.Now(), time.Now()}
 		argIndex := 7
 
 		if imageUrl != "" {
@@ -519,13 +520,25 @@ func FetchProducts(app *conf.Config) gin.HandlerFunc {
 
 		userRole := common.GetUserRole(role)
 
-		userIDStr := c.GetString("userID")
-		userID, err := uuid.Parse(userIDStr)
+		// userIDStr := c.GetString("userID")
+		// userID, err := uuid.Parse(userIDStr)
 
+		// if err != nil {
+
+		// 	l.DebugF("Error parsing merchant ID: %v", err) // Log the parsing error
+		// 	c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
+		// 	return
+		// }
+		merchantIDStr, exists := c.MustGet("merchantID").(string)
+		if !exists {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+			return
+		}
+
+		merchantID, err := uuid.Parse(merchantIDStr)
 		if err != nil {
-
-			l.DebugF("Error parsing merchant ID: %v", err) // Log the parsing error
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
+			l.DebugF("Invalid merchant ID: %v", err)
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid merchant ID"})
 			return
 		}
 
@@ -536,7 +549,7 @@ func FetchProducts(app *conf.Config) gin.HandlerFunc {
 			SELECT id, sku, name, slug, image_url, image_key, description, quantity, price, taxable, is_active, brand_id, merchant_id, updated, created
 			FROM products WHERE merchant_id = $1
 			`
-			rows, err = app.DB.QueryContext(c, query, userID)
+			rows, err = app.DB.QueryContext(c, query, merchantID)
 
 		} else if userRole == common.RoleAdmin { // Add an admin case
 			query := `

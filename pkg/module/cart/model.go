@@ -49,3 +49,10 @@ type CartItemRequest struct { // For AddProductToCart and RemoveProductFromCart 
 	Quantity  int       `json:"quantity" binding:"required"`
 	Action    string    `json:"action"` // TODO "replace" or "increment"
 }
+
+type CartRequest struct {
+	CartID    *uuid.UUID `json:"cart_id"` // Optional (nil = new cart)
+	ProductID uuid.UUID  `json:"product_id" binding:"required"`
+	Quantity  int        `json:"quantity" binding:"required,gt=0"`
+	Action    string     `json:"action" enums:"increment,replace"`
+}

@@ -368,6 +368,26 @@ func SetDefaultAddress(app *conf.Config) gin.HandlerFunc {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Address not found or does not belong to the user"})
 			return
 		}
+		var selectedDefaultAddress Address
+		err = tx.QueryRow("SELECT id, user_id, address_line1, address_line2, city, state, country, zip_code, is_default, updated, created FROM addresses WHERE id = $1", addressID).Scan(
+			&selectedDefaultAddress.ID,
+			&selectedDefaultAddress.UserID,
+			&selectedDefaultAddress.AddressLine1,
+			&selectedDefaultAddress.AddressLine2,
+			&selectedDefaultAddress.City,
+			&selectedDefaultAddress.State,
+			&selectedDefaultAddress.Country,
+			&selectedDefaultAddress.ZipCode,
+			&selectedDefaultAddress.IsDefault,
+			&selectedDefaultAddress.Updated,
+			&selectedDefaultAddress.Created,
+		)
+		if err != nil {
+			l.DebugF("Error fetching selected default address: %v", err)
+			tx.Rollback()
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Could not fetch selected default address"})
+			return
+		}
 
 		err = tx.Commit()
 		if err != nil {
@@ -376,6 +396,10 @@ func SetDefaultAddress(app *conf.Config) gin.HandlerFunc {
 			return
 		}
 
-		c.JSON(http.StatusOK, gin.H{"success": true, "message": "Address has been set as default successfully!"})
+		c.JSON(http.StatusOK, gin.H{
+			"success": true,
+			"message": "Address has been set as default successfully!",
+			"address": selectedDefaultAddress,
+		})
 	}
 }

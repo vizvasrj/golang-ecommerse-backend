@@ -16,8 +16,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/razorpay/razorpay-go"
 	utils "github.com/razorpay/razorpay-go/utils"
-	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 func CreatePGLink() (*cashfree.LinkEntity, error) {
@@ -199,7 +197,6 @@ func Executerazorpay(amount float64, receptId uuid.UUID, orderId string) (string
 // TODO use db to store this
 func handleRazorPayWebhook(app *conf.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// rzp_id := os.Getenv("RAZORPAY_ID")
 		rzp_wb_h_secret := "secret"
 		eventID := c.Request.Header.Get("x-razorpay-event-id")
 		if eventID == "" {
@@ -208,12 +205,7 @@ func handleRazorPayWebhook(app *conf.Config) gin.HandlerFunc {
 			return
 		}
 
-		// client := razorpay.NewClient(rzp_id, rzp_secret)
-
-		// Verify the webhook signature
 		signature := c.Request.Header.Get("X-Razorpay-Signature")
-
-		l.DebugF("Signature: %s", signature)
 		body, err := io.ReadAll(c.Request.Body)
 		if err != nil {
 			log.Println("Error reading request body:", err.Error())
@@ -223,91 +215,98 @@ func handleRazorPayWebhook(app *conf.Config) gin.HandlerFunc {
 
 		var webhook_data map[string]interface{}
 		if utils.VerifyWebhookSignature(string(body), signature, rzp_wb_h_secret) {
-			// process the webhook payload
 			err := json.Unmarshal(body, &webhook_data)
 			if err != nil {
 				l.DebugF("Error unmarshalling webhook data: %s", err.Error())
 			}
-
-			if webhook_data["event"] == "payment.captured" {
-				l.DebugF("Payment Captured")
-
-			} else {
-				l.DebugF("Event not recognized %s", webhook_data["event"])
-			}
-
 		} else {
-			// todo | need to create logic for failed becuase i
-			// todo | could need data for reviews
 			log.Println("Error verifying webhook signature")
 			c.JSON(400, gin.H{"error": "invalid request"})
 			return
 		}
+		fmt.Printf("Webhook Data: %#v\n", webhook_data)
 		if webhook_data["event"].(string) == "order.paid" {
-			saveJsonWebhookData(webhook_data)
-
 			receiptId := webhook_data["payload"].(map[string]interface{})["order"].(map[string]interface{})["entity"].(map[string]interface{})["receipt"].(string)
-			receiptIdObject, err := primitive.ObjectIDFromHex(receiptId)
+			receiptIdObject, err := uuid.Parse(receiptId)
 			if err != nil {
-				l.DebugF("Error converting receipt id to object id: %s", err.Error())
+				l.DebugF("Error converting receipt id to UUID: %s", err.Error())
 				c.JSON(400, gin.H{"error": "invalid request"})
 				return
 			}
+
+			// Fetch receipt from PostgreSQL
 			receiptDoc := Receipt{}
-			err = app.ReceiptCollection.FindOne(c, bson.M{"_id": receiptIdObject}).Decode(&receiptDoc)
+			query := `SELECT id, order_id, provider_data FROM receipts WHERE id = $1`
+			row := app.DB.QueryRowContext(c, query, receiptIdObject)
+
+			var providerData []byte
+			err = row.Scan(&receiptDoc.ID, &receiptDoc.OrderID, &providerData)
 			if err != nil {
 				l.DebugF("Error fetching receipt: %s", err.Error())
-				// c.JSON(400, gin.H{"error": "invalid request"})
-				// return
 			}
-			l.DebugF("receiptId: %s, rzr_orderId %s", receiptId, receiptDoc.RazorpayOrderID)
 
+			if err := json.Unmarshal(providerData, &receiptDoc.ProviderData); err != nil {
+				l.DebugF("Error unmarshaling provider data: %s", err.Error())
+			}
+
+			razorpayOrderID, _ := receiptDoc.ProviderData["razorpay_order_id"].(string)
 			paymentId := webhook_data["payload"].(map[string]interface{})["payment"].(map[string]interface{})["entity"].(map[string]interface{})["id"].(string)
-			l.DebugF("receiptId, %s, paymentId: %s rzr_orderId %s", receiptId, paymentId, receiptDoc.RazorpayOrderID)
+
+			// Verify payment signature
 			ok := utils.VerifyPaymentSignature(map[string]interface{}{
-				"razorpay_order_id":   receiptDoc.RazorpayOrderID,
+				"razorpay_order_id":   razorpayOrderID,
 				"razorpay_payment_id": paymentId,
 			}, signature, rzp_wb_h_secret)
 			if !ok {
-				l.DebugF("XXXXXXX Error verifying payment signature XXXXXXX")
-				// c.JSON(400, gin.H{"error": "invalid request"})
-				// return
+				l.DebugF("Error verifying payment signature")
+				c.JSON(400, gin.H{"error": "invalid request"})
+				return
 			}
-			l.DebugF("Payment Captured")
-		}
-		notes := webhook_data["payload"].(map[string]interface{})["payment"].(map[string]interface{})["entity"].(map[string]interface{})["notes"]
-		var orderId string
-		switch noteValues := notes.(type) {
-		case map[string]interface{}:
-			fmt.Printf("%#v %#v\n", notes.(map[string]interface{}), noteValues)
-			orderIdValue := notes.(map[string]interface{})["orderId"]
-			if orderIdValue != nil {
-				orderId = orderIdValue.(string)
-			}
-		case []interface{}:
-			l.DebugF("Note values: %#v", noteValues)
 		}
 
-		orderIdObject, err := primitive.ObjectIDFromHex(orderId)
+		// Update order status
+		notes := webhook_data["payload"].(map[string]interface{})["payment"].(map[string]interface{})["entity"].(map[string]interface{})["notes"]
+		orderId := ""
+		if noteValues, ok := notes.(map[string]interface{}); ok {
+			orderId = noteValues["orderId"].(string)
+		}
+
+		orderUUID, err := uuid.Parse(orderId)
 		if err != nil {
-			l.DebugF("Error converting order id to object id: %s", err.Error())
+			l.DebugF("Error converting order id to UUID: %s", err.Error())
 			c.JSON(400, gin.H{"error": "invalid request"})
 			return
 		}
-		// if i got orderId i need to update the product here
-		filter := bson.M{"orderId": orderIdObject}
-		location, _ := time.LoadLocation("Asia/Kolkata")
 
-		app.ReceiptCollection.UpdateOne(c, filter, bson.M{
-			"$set": bson.D{
-				{Key: "paymentStatus", Value: PaymentStatusCaptured},
-				{Key: "updated", Value: time.Now().In(location)},
-				{Key: "providerData", Value: webhook_data},
-			},
-		})
-		l.InfoF("Order ID: %s END", orderId)
+		// Convert webhook data to JSONB
+		providerDataJSON, err := json.Marshal(webhook_data)
+		if err != nil {
+			l.DebugF("Error marshaling provider data: %s", err.Error())
+			c.JSON(500, gin.H{"error": "internal server error"})
+			return
+		}
+
+		// Update receipt in PostgreSQL
+		updateQuery := `
+            UPDATE receipts
+            SET payment_status = $1,
+                updated = $2,
+                provider_data = $3
+            WHERE order_id = $4
+        `
+		_, err = app.DB.ExecContext(c, updateQuery,
+			PaymentStatusCaptured,
+			time.Now().UTC(),
+			providerDataJSON,
+			orderUUID,
+		)
+		if err != nil {
+			l.DebugF("Error updating receipt: %s", err.Error())
+			c.JSON(500, gin.H{"error": "internal server error"})
+			return
+		}
+
 		c.JSON(200, gin.H{"status": "success"})
-
 	}
 }
 

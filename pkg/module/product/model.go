@@ -46,7 +46,7 @@ type ProductUpdate struct { // Struct for partial updates
 type AddProductInput struct { // Request input struct for AddProduct
 	SKU         string    `form:"sku" binding:"required"`
 	Name        string    `form:"name" binding:"required"`
-	Slug        string    `form:"slug" binding:"required"`
+	Slug        string    `form:"slug"`
 	Description string    `form:"description" binding:"required"`
 	Quantity    int       `form:"quantity" binding:"required"`
 	Price       float64   `form:"price" binding:"required"`

@@ -1,6 +1,7 @@
 package review
 
 import (
+	"src/pkg/module/product"
 	"time"
 
 	"github.com/google/uuid"
@@ -46,17 +47,18 @@ const (
 // }
 
 type Review struct {
-	ID            uuid.UUID   `db:"id" json:"_id"`
-	ProductID     uuid.UUID   `db:"product_id" json:"productId"`
-	UserID        uuid.UUID   `db:"user_id" json:"userId"`
-	Title         string      `db:"title" json:"title" binding:"required"`
-	Rating        float64     `db:"rating" json:"rating" binding:"required"`
-	Review        string      `db:"review" json:"review" binding:"required"`
-	IsRecommended bool        `db:"is_recommended" json:"isRecommended"`
-	Status        string      `db:"status" json:"status"`
-	Updated       null.Time   `db:"updated" json:"updated"`
-	Created       time.Time   `db:"created" json:"created"`
-	User          *ReviewUser `json:"user,omitempty"`
+	ID            uuid.UUID        `db:"id" json:"_id"`
+	ProductID     uuid.UUID        `db:"product_id" json:"productId"`
+	UserID        uuid.UUID        `db:"user_id" json:"userId"`
+	Title         string           `db:"title" json:"title" binding:"required"`
+	Rating        float64          `db:"rating" json:"rating" binding:"required"`
+	Review        string           `db:"review" json:"review" binding:"required"`
+	IsRecommended bool             `db:"is_recommended" json:"isRecommended"`
+	Status        string           `db:"status" json:"status"`
+	Updated       null.Time        `db:"updated" json:"updated"`
+	Created       time.Time        `db:"created" json:"created"`
+	User          *ReviewUser      `json:"user,omitempty"`
+	Product       *product.Product `json:"product,omitempty"`
 }
 
 type ReviewUser struct { // This struct represents the user who wrote the review.
